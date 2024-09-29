@@ -1,7 +1,5 @@
----
-title: 'System programming 2024: csieTrain'
-
----
+overall   vedio <https://www.youtube.com/watch?v=lvjxdnW8Dd4>
+demo/spec vedio by TA <https://www.youtube.com/watch?v=TdXyYWX_HW8>
 
 # Systems programming 2024: csieTrain
 
