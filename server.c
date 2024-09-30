@@ -63,7 +63,7 @@ int handle_read(request *reqP) {
     if (p1 == NULL) {
         p1 = strstr(buf, "\012"); // \n
         if (p1 == NULL) {
-            if (!strncmp(buf, IAC_IP, 2)) {
+            if (!strncmp(buf, (const char *)IAC_IP, 2)) {
                 // Client presses ctrl+C, regard as disconnection
                 fprintf(stderr, "Client presses ctrl+C....\n");
                 return 0;
