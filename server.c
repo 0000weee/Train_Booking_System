@@ -40,6 +40,10 @@ int accept_conn(void);
 static void getfilepath(char* filepath, int extension);
 // get record filepath
 
+int incomplete_input(request* reqP){
+    return 0;
+}
+
 int handle_read(request* reqP) {
     /*  Return value:
      *      1: read successfully
@@ -47,6 +51,11 @@ int handle_read(request* reqP) {
      *     -1: read failed
      *   TODO: handle incomplete input
      */
+    if(incomplete_input(reqP)==1){
+        return -1;
+        // perror message,應該是從reqP裡面的資訊，推測出不合法的輸入，要return -1
+    }
+
     int r;
     char buf[MAX_MSG_LEN];
     size_t len;
