@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
         }
         
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
-        write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+        write(requestP[conn_fd].conn_fd, buf, strlen(buf));// who give requestP value?
 #elif defined WRITE_SERVER
         sprintf(buf,"%s : %s",accept_write_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));    
