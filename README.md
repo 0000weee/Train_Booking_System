@@ -1,3 +1,4 @@
+hackmd <https://hackmd.io/eC7MLPK_QzC9Wt9nGy6HaQ?view#54-Input-Checking>  
 overall   vedio <https://www.youtube.com/watch?v=lvjxdnW8Dd4>  
 demo/spec vedio by TA <https://www.youtube.com/watch?v=TdXyYWX_HW8>
 
