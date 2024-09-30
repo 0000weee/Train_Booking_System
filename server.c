@@ -201,10 +201,24 @@ int main(int argc, char** argv) {
         }
 
         // TODO: handle requests from clients
-        fprintf(stdout, welcome_banner);
+        if(ret==1){
+            fprintf(stdout, welcome_banner);
+        }
+
 
 #ifdef READ_SERVER      
         fprintf(stdout, read_shift_msg);
+        
+        int shift_id = atoi(requestP[conn_fd].buf);
+        if (shift_id >= 902001 && shift_id <= 902005) {
+            fprintf(stdout, "%s %s", read_shift_msg, requestP[conn_fd].buf);
+            print_seat_map(requestP[conn_fd].conn_fd, shift_id);
+        } else {
+            char err_msg[] = "Invalid shift ID. Please enter a valid ID between 902001 and 902005.\n";
+            write(requestP[conn_fd].conn_fd, err_msg, strlen(err_msg));
+        }
+
+        
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));
 #elif defined WRITE_SERVER
