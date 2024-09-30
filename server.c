@@ -65,21 +65,21 @@ int handle_read(request* reqP) {
             // 可以執行錯誤處理邏輯
             break;
         case SHIFT:
-            if(strcmp(pay, buf)==0 || strcmp(seat, buf)==0){
+            if(strcmp("pay", buf)==0 || strcmp("seat", buf)==0){
                 perror(">>> Invalid operation.");
                 return -1;
             }
             // 可以執行選擇時間邏輯
             break;
         case SEAT:
-            if(strcmp(seat, buf)==0){
+            if(strcmp("seat", buf)==0){
                 perror(">>> Invalid operation.");
                 return -1;
             }
             // 可以執行選擇座位邏輯
             break;
         case BOOKED:
-            if(strcmp(pay, buf)==0){
+            if(strcmp("pay", buf)==0){
                 perror(">>> Invalid operation.");
                 return -1;
             }
