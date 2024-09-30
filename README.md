@@ -269,7 +269,7 @@ Clients may experience connection issues, such as sending messages slowly, resul
 :::
 
 ### 5.4 Input Checking
-:::spoiler {state='open'} **Click me**
+
 #### Input format
 - Each input ending with a newline `\n` is treated as a **single valid input**.
 - The length of a **single valid input** must be less than `MAX_MSG_LEN` (512 bytes)
