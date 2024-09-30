@@ -207,12 +207,25 @@ int main(int argc, char** argv) {
 
 
 #ifdef READ_SERVER      
-        perror(read_shift_msg);
-
+        fprintf(stdout, "%s", read_shift_msg);
         int shift_id = atoi(requestP[conn_fd].buf);
         if (shift_id >= 902001 && shift_id <= 902005) {
             fprintf(stdout, "%s %s", read_shift_msg, requestP[conn_fd].buf);
             //print_seat_map
+            int bytes_read;
+            int offset = 0;
+
+            memset(buf, 0, sizeof(buf));
+
+            while ((bytes_read = read(trains[shift_id].file_fd, buf + offset, sizeof(buf) - offset)) > 0) {
+                offset += bytes_read;
+            }
+
+            if (bytes_read < 0) {
+                perror("Failed to read file");
+                return -1;
+            }  
+            
         } else {
             char err_msg[] = "Invalid shift ID. Please enter a valid ID between 902001 and 902005.\n";
             write(requestP[conn_fd].conn_fd, err_msg, strlen(err_msg));
@@ -220,6 +233,7 @@ int main(int argc, char** argv) {
         
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));// who give requestP value?
+        // requestP[conn_fd].conn_fd 指的是什麼?
 #elif defined WRITE_SERVER
         sprintf(buf,"%s : %s",accept_write_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));    
