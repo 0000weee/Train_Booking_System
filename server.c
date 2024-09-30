@@ -56,7 +56,8 @@ int handle_read(request* reqP) {
 
     // Read in request from client
     r = read(reqP->conn_fd, buf, sizeof(buf));
-    if (r < 0 || r>512) return -1; //2024.9.30
+    //my code
+    if (r < 0 || r>512) return -1; 
     if (r == 0) return 0;
 
     switch (reqP->status) {
@@ -97,7 +98,7 @@ int handle_read(request* reqP) {
     if(strcmp("exit",buf)==0){
         perror(">>> Client exit.");
         close(reqP->conn_fd);
-    }
+    }// my code
 
     char* p1 = strstr(buf, "\015\012"); // \r\n
     if (p1 == NULL) {
@@ -201,9 +202,9 @@ int main(int argc, char** argv) {
 
         // TODO: handle requests from clients
         fprintf(stdout, welcome_banner);
-        fprintf(stdout, read_shift_msg);
 
 #ifdef READ_SERVER      
+        fprintf(stdout, read_shift_msg);
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));
 #elif defined WRITE_SERVER
