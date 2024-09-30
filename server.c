@@ -67,6 +67,7 @@ int handle_read(request* reqP) {
         case SHIFT:
             if(strcmp("pay", buf)==0 || strcmp("seat", buf)==0){
                 perror(">>> Invalid operation.");
+                close(reqP->conn_fd);
                 return -1;
             }
             // 可以執行選擇時間邏輯
@@ -74,6 +75,7 @@ int handle_read(request* reqP) {
         case SEAT:
             if(strcmp("seat", buf)==0){
                 perror(">>> Invalid operation.");
+                close(reqP->conn_fd);
                 return -1;
             }
             // 可以執行選擇座位邏輯
@@ -81,15 +83,21 @@ int handle_read(request* reqP) {
         case BOOKED:
             if(strcmp("pay", buf)==0){
                 perror(">>> Invalid operation.");
+                close(reqP->conn_fd);
                 return -1;
             }
             // 可以執行付款完成後的邏輯
             break;
         default:
             printf("Unknown state.\n");
+            close(reqP->conn_fd);
             break;
     }
 
+    if(strcmp("exit",buf)==0){
+        perror(">>> Client exit.");
+        close(reqP->conn_fd);
+    }
 
     char* p1 = strstr(buf, "\015\012"); // \r\n
     if (p1 == NULL) {
@@ -192,6 +200,9 @@ int main(int argc, char** argv) {
         }
 
         // TODO: handle requests from clients
+        fprintf(stdout, welcome_banner);
+        fprintf(stdout, read_shift_msg);
+
 #ifdef READ_SERVER      
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));
