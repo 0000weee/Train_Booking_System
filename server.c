@@ -58,6 +58,39 @@ int handle_read(request* reqP) {
     r = read(reqP->conn_fd, buf, sizeof(buf));
     if (r < 0 || r>512) return -1; //2024.9.30
     if (r == 0) return 0;
+
+    switch (reqP->status) {
+        case INVALID:
+            
+            // 可以執行錯誤處理邏輯
+            break;
+        case SHIFT:
+            if(strcmp(pay, buf)==0 || strcmp(seat, buf)==0){
+                perror(">>> Invalid operation.");
+                return -1;
+            }
+            // 可以執行選擇時間邏輯
+            break;
+        case SEAT:
+            if(strcmp(seat, buf)==0){
+                perror(">>> Invalid operation.");
+                return -1;
+            }
+            // 可以執行選擇座位邏輯
+            break;
+        case BOOKED:
+            if(strcmp(pay, buf)==0){
+                perror(">>> Invalid operation.");
+                return -1;
+            }
+            // 可以執行付款完成後的邏輯
+            break;
+        default:
+            printf("Unknown state.\n");
+            break;
+    }
+
+
     char* p1 = strstr(buf, "\015\012"); // \r\n
     if (p1 == NULL) {
         p1 = strstr(buf, "\012");   // \n
