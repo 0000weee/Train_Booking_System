@@ -22,5 +22,7 @@
 *.tmp
 *.swp
 
+start.sh
+
 read_server
 write_server
