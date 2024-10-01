@@ -1,4 +1,12 @@
 {
+    "files.exclude": {
+        ".DS_Store": true,
+        ".gitignore": true,
+        ".vscode": true,
+        "start.sh": true,
+        "read_server": true,
+        "write_server": true,
+    },
     "files.associations": {
         "types.h": "c",
         "__hash_table": "c",
