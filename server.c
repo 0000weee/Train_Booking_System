@@ -40,7 +40,81 @@ int accept_conn(void);
 static void getfilepath(char *filepath, int extension);
 // get record filepath
 
-int handle_read(request *reqP) {
+// ======================================================================================================
+// You don't need to know how the following codes are working
+#include <fcntl.h>
+
+static void init_request(request *reqP)
+{
+    reqP->conn_fd = -1;
+    reqP->client_id = -1;
+    reqP->buf_len = 0;
+    reqP->status = INVALID;
+    reqP->remaining_time.tv_sec = 5;
+    reqP->remaining_time.tv_usec = 0;
+
+    reqP->booking_info.num_of_chosen_seats = 0;
+    reqP->booking_info.train_fd = -1;
+    for (int i = 0; i < SEAT_NUM; i++)
+        reqP->booking_info.seat_stat[i] = UNKNOWN;
+}
+
+static void free_request(request *reqP)
+{
+    memset(reqP, 0, sizeof(request));
+    init_request(reqP);
+}
+
+static void init_server(unsigned short port)
+{
+    struct sockaddr_in servaddr;
+    int tmp;
+
+    gethostname(svr.hostname, sizeof(svr.hostname));
+    svr.port = port;
+
+    svr.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (svr.listen_fd < 0)
+        ERR_EXIT("socket");
+
+    bzero(&servaddr, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(port);
+    tmp = 1;
+    if (setsockopt(svr.listen_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&tmp, sizeof(tmp)) < 0)
+    {
+        ERR_EXIT("setsockopt");
+    }
+    if (bind(svr.listen_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+    {
+        ERR_EXIT("bind");
+    }
+    if (listen(svr.listen_fd, 1024) < 0)
+    {
+        ERR_EXIT("listen");
+    }
+
+    // Get file descripter table size and initialize request table
+    maxfd = getdtablesize();
+    requestP = (request *)malloc(sizeof(request) * maxfd);
+    if (requestP == NULL)
+    {
+        ERR_EXIT("out of memory allocating all requests");
+    }
+    for (int i = 0; i < maxfd; i++)
+    {
+        init_request(&requestP[i]);
+    }
+    requestP[svr.listen_fd].conn_fd = svr.listen_fd;
+    strcpy(requestP[svr.listen_fd].host, svr.hostname);
+
+    return;
+}
+// ======================================================================================================
+
+int handle_read(request *reqP)
+{
     /*  Return value:
      *      1: read successfully
      *      0: read EOF (client down)
@@ -60,10 +134,13 @@ int handle_read(request *reqP) {
     if (r == 0)
         return 0;
     char *p1 = strstr(buf, "\015\012"); // \r\n
-    if (p1 == NULL) {
+    if (p1 == NULL)
+    {
         p1 = strstr(buf, "\012"); // \n
-        if (p1 == NULL) {
-            if (!strncmp(buf, (const char *)IAC_IP, 2)) {
+        if (p1 == NULL)
+        {
+            if (!strncmp(buf, (const char *)IAC_IP, 2))
+            {
                 // Client presses ctrl+C, regard as disconnection
                 fprintf(stderr, "Client presses ctrl+C....\n");
                 return 0;
@@ -79,19 +156,22 @@ int handle_read(request *reqP) {
 }
 
 #ifdef READ_SERVER
-int print_train_info(request *reqP) {
+int print_train_info(request *reqP)
+{
 
     int i;
     char buf[MAX_MSG_LEN];
 
     memset(buf, 0, sizeof(buf));
-    for (i = 0; i < SEAT_NUM / 4; i++) {
+    for (i = 0; i < SEAT_NUM / 4; i++)
+    {
         sprintf(buf + (i * 4 * 2), "%d %d %d %d\n", 0, 0, 0, 0);
     }
     return 0;
 }
 #else
-int print_train_info(request *reqP) {
+int print_train_info(request *reqP)
+{
     /*
      * Booking info
      * |- Shift ID: 902001
@@ -113,10 +193,51 @@ int print_train_info(request *reqP) {
 }
 #endif
 
-int main(int argc, char **argv) {
+int accept_conn(void)
+{
+
+    struct sockaddr_in cliaddr;
+    size_t clilen;
+    int conn_fd; // fd for a new connection with client
+
+    clilen = sizeof(cliaddr);
+    conn_fd = accept(svr.listen_fd, (struct sockaddr *)&cliaddr, (socklen_t *)&clilen);
+    if (conn_fd < 0)
+    {
+        if (errno == EINTR || errno == EAGAIN)
+            return -1; // try again
+        if (errno == ENFILE)
+        {
+            (void)fprintf(stderr, "out of file descriptor table ... (maxconn %d)\n", maxfd);
+            return -1;
+        }
+        ERR_EXIT("accept");
+    }
+
+    requestP[conn_fd].conn_fd = conn_fd;
+    strcpy(requestP[conn_fd].host, inet_ntoa(cliaddr.sin_addr));
+    fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd, requestP[conn_fd].host);
+    requestP[conn_fd].client_id = (svr.port * 1000) + num_conn; // This should be unique for the same machine.
+    num_conn++;
+
+    return conn_fd;
+}
+
+static void getfilepath(char *filepath, int extension)
+{
+    char fp[FILE_LEN * 2];
+
+    memset(filepath, 0, FILE_LEN);
+    sprintf(fp, "%s%d", file_prefix, extension);
+    strcpy(filepath, fp);
+}
+
+int main(int argc, char **argv)
+{
 
     // Parse args.
-    if (argc != 2) {
+    if (argc != 2)
+    {
         fprintf(stderr, "usage: %s [port]\n", argv[0]);
         exit(1);
     }
@@ -126,7 +247,8 @@ int main(int argc, char **argv) {
 
     int i, j;
 
-    for (i = TRAIN_ID_START, j = 0; i <= TRAIN_ID_END; i++, j++) {
+    for (i = TRAIN_ID_START, j = 0; i <= TRAIN_ID_END; i++, j++)
+    {
         getfilepath(filename, i);
 #ifdef READ_SERVER
         trains[j].file_fd = open(filename, O_RDONLY);
@@ -135,7 +257,8 @@ int main(int argc, char **argv) {
 #else
         trains[j].file_fd = -1;
 #endif
-        if (trains[j].file_fd < 0) {
+        if (trains[j].file_fd < 0)
+        {
             ERR_EXIT("open");
         }
     }
@@ -147,7 +270,8 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd,
             maxfd);
 
-    while (1) {
+    while (1)
+    {
         // TODO: Add IO multiplexing
 
         // Check new connection
@@ -156,7 +280,8 @@ int main(int argc, char **argv) {
             continue;
 
         int ret = handle_read(&requestP[conn_fd]);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             fprintf(stderr, "bad request from %s\n", requestP[conn_fd].host);
             continue;
         }
@@ -180,103 +305,4 @@ int main(int argc, char **argv) {
         close(trains[i].file_fd);
 
     return 0;
-}
-
-int accept_conn(void) {
-
-    struct sockaddr_in cliaddr;
-    size_t clilen;
-    int conn_fd; // fd for a new connection with client
-
-    clilen = sizeof(cliaddr);
-    conn_fd = accept(svr.listen_fd, (struct sockaddr *)&cliaddr, (socklen_t *)&clilen);
-    if (conn_fd < 0) {
-        if (errno == EINTR || errno == EAGAIN)
-            return -1; // try again
-        if (errno == ENFILE) {
-            (void)fprintf(stderr, "out of file descriptor table ... (maxconn %d)\n", maxfd);
-            return -1;
-        }
-        ERR_EXIT("accept");
-    }
-
-    requestP[conn_fd].conn_fd = conn_fd;
-    strcpy(requestP[conn_fd].host, inet_ntoa(cliaddr.sin_addr));
-    fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd, requestP[conn_fd].host);
-    requestP[conn_fd].client_id = (svr.port * 1000) + num_conn; // This should be unique for the same machine.
-    num_conn++;
-
-    return conn_fd;
-}
-
-static void getfilepath(char *filepath, int extension) {
-    char fp[FILE_LEN * 2];
-
-    memset(filepath, 0, FILE_LEN);
-    sprintf(fp, "%s%d", file_prefix, extension);
-    strcpy(filepath, fp);
-}
-
-// ======================================================================================================
-// You don't need to know how the following codes are working
-#include <fcntl.h>
-
-static void init_request(request *reqP) {
-    reqP->conn_fd = -1;
-    reqP->client_id = -1;
-    reqP->buf_len = 0;
-    reqP->status = INVALID;
-    reqP->remaining_time.tv_sec = 5;
-    reqP->remaining_time.tv_usec = 0;
-
-    reqP->booking_info.num_of_chosen_seats = 0;
-    reqP->booking_info.train_fd = -1;
-    for (int i = 0; i < SEAT_NUM; i++)
-        reqP->booking_info.seat_stat[i] = UNKNOWN;
-}
-
-static void free_request(request *reqP) {
-    memset(reqP, 0, sizeof(request));
-    init_request(reqP);
-}
-
-static void init_server(unsigned short port) {
-    struct sockaddr_in servaddr;
-    int tmp;
-
-    gethostname(svr.hostname, sizeof(svr.hostname));
-    svr.port = port;
-
-    svr.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (svr.listen_fd < 0)
-        ERR_EXIT("socket");
-
-    bzero(&servaddr, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(port);
-    tmp = 1;
-    if (setsockopt(svr.listen_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&tmp, sizeof(tmp)) < 0) {
-        ERR_EXIT("setsockopt");
-    }
-    if (bind(svr.listen_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        ERR_EXIT("bind");
-    }
-    if (listen(svr.listen_fd, 1024) < 0) {
-        ERR_EXIT("listen");
-    }
-
-    // Get file descripter table size and initialize request table
-    maxfd = getdtablesize();
-    requestP = (request *)malloc(sizeof(request) * maxfd);
-    if (requestP == NULL) {
-        ERR_EXIT("out of memory allocating all requests");
-    }
-    for (int i = 0; i < maxfd; i++) {
-        init_request(&requestP[i]);
-    }
-    requestP[svr.listen_fd].conn_fd = svr.listen_fd;
-    strcpy(requestP[svr.listen_fd].host, svr.hostname);
-
-    return;
 }
