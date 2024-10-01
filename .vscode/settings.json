@@ -1,11 +1,12 @@
 {
+    "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: Google, BreakBeforeBraces: Attach, AllowShortFunctionsOnASingleLine: false, AllowShortIfStatementsOnASingleLine: false, AllowShortLoopsOnASingleLine: false, AlwaysBreakBeforeMultilineStrings: true, IndentWidth: 4, ColumnLimit: 0, BreakBeforeBinaryOperators: All, AllowShortBlocksOnASingleLine: false }",
     "files.exclude": {
-        ".DS_Store": true,
-        ".gitignore": true,
-        ".vscode": true,
-        "start.sh": true,
-        "read_server": true,
-        "write_server": true,
+        ".DS_Store": false,
+        ".gitignore": false,
+        ".vscode": false,
+        "start.sh": false,
+        "read_server": false,
+        "write_server": false
     },
     "files.associations": {
         "types.h": "c",
