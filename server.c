@@ -56,11 +56,15 @@ int handle_read(request* reqP) {
 
     // Read in request from client
     r = read(reqP->conn_fd, buf, sizeof(buf));
+    while(){
+        //一個一個讀
+    }
     //my code
-    if (r < 0 || r>512) return -1; 
+    //512 nonblock IO, need read until "\n"
+    if (r < 0) return -1; 
     if (r == 0) return 0;
-
-    switch (reqP->status) {
+    /*
+    switch (reqP->status) {// move to other func
         case INVALID:
             
             // 可以執行錯誤處理邏輯
@@ -98,7 +102,7 @@ int handle_read(request* reqP) {
     if(strcmp("exit",buf)==0){
         perror(">>> Client exit.");
         close(reqP->conn_fd);
-    }// my code
+    }// my code*/
 
     char* p1 = strstr(buf, "\015\012"); // \r\n
     if (p1 == NULL) {
@@ -201,13 +205,9 @@ int main(int argc, char** argv) {
         }
 
         // TODO: handle requests from clients
-        if(ret==1){
-            perror(welcome_banner);
-        }
-
 
 #ifdef READ_SERVER      
-        fprintf(stdout, "%s", read_shift_msg);
+        /*fprintf(stdout, "%s", read_shift_msg);
         int shift_id = atoi(requestP[conn_fd].buf);
         if (shift_id >= 902001 && shift_id <= 902005) {
             fprintf(stdout, "%s %s", read_shift_msg, requestP[conn_fd].buf);
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
         } else {
             char err_msg[] = "Invalid shift ID. Please enter a valid ID between 902001 and 902005.\n";
             write(requestP[conn_fd].conn_fd, err_msg, strlen(err_msg));
-        }
+        }*/
         
         sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
         write(requestP[conn_fd].conn_fd, buf, strlen(buf));// who give requestP value?
