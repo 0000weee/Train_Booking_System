@@ -24,7 +24,7 @@ int main() {
     struct pollfd fds[MAX_CLIENTS + 1];
     int nfds = 1;  // 初始只包含 server_fd
 
-    // 初始化所有客戶端 socket 为 0（表示空閒）
+    // 初始化所有客戶端 socket 為 0（表示空閒）
     for (i = 0; i < MAX_CLIENTS; i++) {
         client_socket[i] = 0;
     }
