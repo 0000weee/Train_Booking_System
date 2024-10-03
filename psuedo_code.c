@@ -19,7 +19,7 @@ int main(){
     fds[0].events = POLLIN;
     int nfds = 1;
     while (1) {
-        int poll_count = poll(fds, nfds, -1);
+        int poll_count = poll(fds, nfds, -1); // 使用 poll 監聽事件
 
         if (poll_count < 0) {
             ERR_EXIT("poll error");

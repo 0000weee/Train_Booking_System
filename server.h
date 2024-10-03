@@ -15,7 +15,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <time.h>
-
+#include <poll.h>
 /*
  * Feel free to edit any part of codes
  */
@@ -28,6 +28,7 @@
 #define TRAIN_ID_END TRAIN_ID_START + (TRAIN_NUM - 1)
 #define FILE_LEN 50
 #define MAX_MSG_LEN 512
+#define MAX_CLIENTS 30
 
 enum STATE {
     INVALID,    // Invalid state

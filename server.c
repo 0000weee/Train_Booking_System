@@ -56,53 +56,13 @@ int handle_read(request* reqP) {
 
     // Read in request from client
     r = read(reqP->conn_fd, buf, sizeof(buf));
-    while(){
+    while(0){
         //一個一個讀
     }
-    //my code
+
     //512 nonblock IO, need read until "\n"
     if (r < 0) return -1; 
     if (r == 0) return 0;
-    /*
-    switch (reqP->status) {// move to other func
-        case INVALID:
-            
-            // 可以執行錯誤處理邏輯
-            break;
-        case SHIFT:
-            if(strcmp("pay", buf)==0 || strcmp("seat", buf)==0){
-                perror(">>> Invalid operation.");
-                close(reqP->conn_fd);
-                return -1;
-            }
-            // 可以執行選擇時間邏輯
-            break;
-        case SEAT:
-            if(strcmp("seat", buf)==0){
-                perror(">>> Invalid operation.");
-                close(reqP->conn_fd);
-                return -1;
-            }
-            // 可以執行選擇座位邏輯
-            break;
-        case BOOKED:
-            if(strcmp("pay", buf)==0){
-                perror(">>> Invalid operation.");
-                close(reqP->conn_fd);
-                return -1;
-            }
-            // 可以執行付款完成後的邏輯
-            break;
-        default:
-            printf("Unknown state.\n");
-            close(reqP->conn_fd);
-            break;
-    }
-
-    if(strcmp("exit",buf)==0){
-        perror(">>> Client exit.");
-        close(reqP->conn_fd);
-    }// my code*/
 
     char* p1 = strstr(buf, "\015\012"); // \r\n
     if (p1 == NULL) {
@@ -158,95 +118,91 @@ int print_train_info(request *reqP) {
 #endif
 
 int main(int argc, char** argv) {
-
-    // Parse args.
     if (argc != 2) {
         fprintf(stderr, "usage: %s [port]\n", argv[0]);
         exit(1);
     }
 
-    int conn_fd;  // fd for file that we open for reading
-    char buf[MAX_MSG_LEN*2], filename[FILE_LEN];
+    int conn_fd, maxfd = 0;
+    char buf[MAX_MSG_LEN * 2], filename[FILE_LEN];
+    int i, j;
 
-    int i,j;
-
-    for (i = TRAIN_ID_START, j = 0; i <= TRAIN_ID_END; i++, j++) {
-        getfilepath(filename, i);
+    for (i = 0, j = 0; i < TRAIN_NUM; i++, j++) {
+        getfilepath(filename, i + 1);
 #ifdef READ_SERVER
-        trains[j].file_fd = open(filename, O_RDONLY);
+            trains[j].file_fd = open(filename, O_RDONLY);
 #elif defined WRITE_SERVER
-        trains[j].file_fd = open(filename, O_RDWR);
+            trains[j].file_fd = open(filename, O_RDWR);
 #else
-        trains[j].file_fd = -1;
-#endif
+            trains[j].file_fd = -1;
+#endif      
         if (trains[j].file_fd < 0) {
             ERR_EXIT("open");
         }
     }
 
     // Initialize server
-    init_server((unsigned short) atoi(argv[1]));
+    init_server((unsigned short)atoi(argv[1]));
 
-    // Loop for handling connections
-    fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
+    // Create pollfd array
+    struct pollfd fds[MAX_CLIENTS + 1];
+    memset(fds, 0, sizeof(fds));
+
+    // Add server listen_fd to the poll set
+    fds[0].fd = svr.listen_fd;
+    fds[0].events = POLLIN;
+    int nfds = 1;
+
+    fprintf(stderr, "starting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, (int)(svr.port), svr.listen_fd, maxfd);
 
     while (1) {
-        // TODO: Add IO multiplexing
+        int poll_count = poll(fds, nfds, -1);
 
-        // Check new connection
-        conn_fd = accept_conn();
-        if (conn_fd < 0)
-            continue;
-
-        int ret = handle_read(&requestP[conn_fd]);
-	    if (ret < 0) {
-            fprintf(stderr, "bad request from %s\n", requestP[conn_fd].host);
-            continue;
+        if (poll_count < 0) {
+            ERR_EXIT("poll error");
         }
 
-        // TODO: handle requests from clients
-
-#ifdef READ_SERVER      
-        /*fprintf(stdout, "%s", read_shift_msg);
-        int shift_id = atoi(requestP[conn_fd].buf);
-        if (shift_id >= 902001 && shift_id <= 902005) {
-            fprintf(stdout, "%s %s", read_shift_msg, requestP[conn_fd].buf);
-            //print_seat_map
-            int bytes_read;
-            int offset = 0;
-
-            memset(buf, 0, sizeof(buf));
-
-            while ((bytes_read = read(trains[shift_id].file_fd, buf + offset, sizeof(buf) - offset)) > 0) {
-                offset += bytes_read;
+        // Check for new connections on the listening socket
+        if (fds[0].revents & POLLIN) {
+            conn_fd = accept_conn();
+            if (conn_fd >= 0) {
+                // Add new client connection to the poll set
+                fds[nfds].fd = conn_fd;
+                fds[nfds].events = POLLIN;
+                nfds++;
+                printf("New connection: fd %d\n", conn_fd);
             }
+        }
 
-            if (bytes_read < 0) {
-                perror("Failed to read file");
-                return -1;
-            }  
-            
-        } else {
-            char err_msg[] = "Invalid shift ID. Please enter a valid ID between 902001 and 902005.\n";
-            write(requestP[conn_fd].conn_fd, err_msg, strlen(err_msg));
-        }*/
-        
-        sprintf(buf,"%s : %s",accept_read_header,requestP[conn_fd].buf);
-        write(requestP[conn_fd].conn_fd, buf, strlen(buf));// who give requestP value?
-        // requestP[conn_fd].conn_fd 指的是什麼?
+        // Check for I/O on existing connections
+        for (i = 1; i < nfds; i++) {
+            if (fds[i].revents & POLLIN) {
+                int ret = handle_read(&requestP[fds[i].fd]);
+                if (ret < 0) {
+                    fprintf(stderr, "bad request from %s\n", requestP[fds[i].fd].host);
+                    continue;
+                }
+
+                // Process request
+#ifdef READ_SERVER
+                sprintf(buf, "READ: %s : %s", "Header", requestP[fds[i].fd].buf);
 #elif defined WRITE_SERVER
-        sprintf(buf,"%s : %s",accept_write_header,requestP[conn_fd].buf);
-        write(requestP[conn_fd].conn_fd, buf, strlen(buf));    
+                sprintf(buf, "WRITE: %s : %s", "Header", requestP[fds[i].fd].buf);
 #endif
-        
+                write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
 
-        close(requestP[conn_fd].conn_fd);
-        free_request(&requestP[conn_fd]);
-    }      
+                // Close and remove the connection
+                close(requestP[fds[i].fd].conn_fd);
+                free_request(&requestP[fds[i].fd]);
+                fds[i] = fds[nfds - 1];  // Move last entry to the current slot
+                nfds--;
+                i--;  // Ensure we don't skip the next fd
+            }
+        }
+    }
 
-    free(requestP);
     close(svr.listen_fd);
-    for (i = 0;i < TRAIN_NUM; i++)
+    for (i = 0; i < TRAIN_NUM; i++)
         close(trains[i].file_fd);
 
     return 0;
