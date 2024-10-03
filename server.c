@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
 
         // Check for new connections on the listening socket
         if (fds[0].revents & POLLIN) {
-            if (accept_conn() > -1) {
+            if (conn_fd = accept_conn() > -1) {
                 // Add new client connection to the poll set
                 fds[nfds].fd = conn_fd;
                 fds[nfds].events = POLLIN;
