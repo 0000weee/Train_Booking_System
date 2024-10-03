@@ -123,19 +123,21 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    int conn_fd, maxfd = 0;
-    char buf[MAX_MSG_LEN * 2], filename[FILE_LEN];
-    int i, j;
+    
+    int conn_fd;  // fd for file that we open for reading
+    char buf[MAX_MSG_LEN*2], filename[FILE_LEN];
 
-    for (i = 0, j = 0; i < TRAIN_NUM; i++, j++) {
-        getfilepath(filename, i + 1);
+    int i,j;
+
+    for (i = TRAIN_ID_START, j = 0; i <= TRAIN_ID_END; i++, j++) {
+        getfilepath(filename, i);
 #ifdef READ_SERVER
-            trains[j].file_fd = open(filename, O_RDONLY);
+        trains[j].file_fd = open(filename, O_RDONLY);
 #elif defined WRITE_SERVER
-            trains[j].file_fd = open(filename, O_RDWR);
+        trains[j].file_fd = open(filename, O_RDWR);
 #else
-            trains[j].file_fd = -1;
-#endif      
+        trains[j].file_fd = -1;
+#endif
         if (trains[j].file_fd < 0) {
             ERR_EXIT("open");
         }
@@ -143,7 +145,10 @@ int main(int argc, char** argv) {
 
     // Initialize server
     init_server((unsigned short)atoi(argv[1]));
+    // Loop for handling connections
 
+    fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
+    
     // Create pollfd array
     struct pollfd fds[MAX_CLIENTS + 1];
     memset(fds, 0, sizeof(fds));
@@ -153,19 +158,14 @@ int main(int argc, char** argv) {
     fds[0].events = POLLIN;
     int nfds = 1;
 
-    fprintf(stderr, "starting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, (int)(svr.port), svr.listen_fd, maxfd);
-
-    while (1) {
-        int poll_count = poll(fds, nfds, -1);
-
-        if (poll_count < 0) {
+    while (1) {        
+        if (poll(fds, nfds, -1) < 0) {
             ERR_EXIT("poll error");
         }
 
         // Check for new connections on the listening socket
         if (fds[0].revents & POLLIN) {
-            conn_fd = accept_conn();
-            if (conn_fd >= 0) {
+            if (accept_conn() > -1) {
                 // Add new client connection to the poll set
                 fds[nfds].fd = conn_fd;
                 fds[nfds].events = POLLIN;
