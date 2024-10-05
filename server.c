@@ -186,6 +186,7 @@ int main(int argc, char** argv) {
                 if (read(fds[i].fd, buf, MAX_MSG_LEN*2) < 0){
                     perror("Client disconnected\n");
                 }
+                
 #ifdef READ_SERVER                
                 sprintf(buf,"%s : %s%s",accept_read_header,requestP[conn_fd].buf,"\n");
                 if(write(requestP[conn_fd].conn_fd, buf, strlen(buf)) < 0){
