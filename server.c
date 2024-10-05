@@ -180,13 +180,15 @@ int main(int argc, char** argv) {
                     fprintf(stderr, "bad request from %s\n", requestP[fds[i].fd].host);
                     continue;
                 }
-                
+                /*if(write(fds[i].fd, read_shift_msg, strlen(read_shift_msg)) < 0){
+                    perror("write read_shift_msg error");
+                }*/
                 // Test: Server read client's request
                 memset(buf, 0, MAX_MSG_LEN*2);
                 if (read(fds[i].fd, buf, MAX_MSG_LEN*2) < 0){
                     perror("Client disconnected\n");
                 }
-                
+
 #ifdef READ_SERVER                
                 sprintf(buf,"%s : %s%s",accept_read_header,requestP[conn_fd].buf,"\n");
                 if(write(requestP[conn_fd].conn_fd, buf, strlen(buf)) < 0){
