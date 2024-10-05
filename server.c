@@ -56,9 +56,6 @@ int handle_read(request* reqP) {
 
     // Read in request from client
     r = read(reqP->conn_fd, buf, sizeof(buf));
-    while(0){
-        //一個一個讀
-    }
 
     //512 nonblock IO, need read until "\n"
     if (r < 0) return -1; 
@@ -183,25 +180,35 @@ int main(int argc, char** argv) {
                     fprintf(stderr, "bad request from %s\n", requestP[fds[i].fd].host);
                     continue;
                 }
-
-                // Process request
-#ifdef READ_SERVER
-                sprintf(buf, "READ: %s : %s", "Header", requestP[fds[i].fd].buf);
+                
+                // Test: Server read client's request
+                memset(buf, 0, MAX_MSG_LEN*2);
+                if (read(fds[i].fd, buf, MAX_MSG_LEN*2) < 0){
+                    perror("Client disconnected\n");
+                }
+#ifdef READ_SERVER                
+                sprintf(buf,"%s : %s%s",accept_read_header,requestP[conn_fd].buf,"\n");
+                if(write(requestP[conn_fd].conn_fd, buf, strlen(buf)) < 0){
+                    perror("write to client failed");
+                }                
 #elif defined WRITE_SERVER
-                sprintf(buf, "WRITE: %s : %s", "Header", requestP[fds[i].fd].buf);
+                sprintf(buf,"%s : %s",accept_write_header,requestP[conn_fd].buf);
+                if(write(requestP[conn_fd].conn_fd, buf, strlen(buf)) < 0){
+                    perror("write to client failed");
+                }    
 #endif
-                write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
 
+                printf("Server receive: %s", buf);
                 // Close and remove the connection
-                close(requestP[fds[i].fd].conn_fd);
+                close(fds[i].fd);
                 free_request(&requestP[fds[i].fd]);
                 fds[i] = fds[nfds - 1];  // Move last entry to the current slot
                 nfds--;
-                i--;  // Ensure we don't skip the next fd
+                i--;  // Ensure we don't skip the next fd                
             }
         }
     }
-
+    free(requestP);
     close(svr.listen_fd);
     for (i = 0; i < TRAIN_NUM; i++)
         close(trains[i].file_fd);

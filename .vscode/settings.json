@@ -2,7 +2,9 @@
     "cSpell.words": [
         "maxfd",
         "struct",
-        "talnet"
+        "talnet",
+        "valread"
     ],
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "C_Cpp.dimInactiveRegions": false
 }
