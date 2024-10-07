@@ -169,34 +169,35 @@ int main(int argc, char** argv) {
                 fds[nfds].events = POLLIN;
                 nfds++;
                 printf("New connection: fd %d\n", conn_fd);
+                write(conn_fd, welcome_banner, strlen(welcome_banner));
             }
         }
 
         // Check for I/O on existing connections
         for (i = 1; i < nfds; i++) {
-            if (fds[i].revents & POLLIN) {
+            
+#ifdef READ_SERVER      
+            write(requestP[fds[i].fd].conn_fd, read_shift_msg, strlen(read_shift_msg));
+            if (fds[i].revents & POLLIN) { // 如果有資料可讀，則處理讀取操作
                 int ret = handle_read(&requestP[fds[i].fd]);
                 if (ret < 0) {
                     fprintf(stderr, "bad request from %s\n", requestP[fds[i].fd].host);
                     continue;
                 }
-
-#ifdef READ_SERVER      
-                sprintf(buf,"%s : %s",accept_read_header,requestP[fds[i].fd].buf);
-                write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
+            }
+            sprintf(buf,"%s : %s",accept_read_header,requestP[fds[i].fd].buf);
+            write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
 #elif defined WRITE_SERVER
-                sprintf(buf,"%s : %s",accept_write_header,requestP[fds[i].fd].buf);
-                write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));    
+            sprintf(buf,"%s : %s",accept_write_header,requestP[fds[i].fd].buf);
+            write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));    
 #endif
 
-                printf("Server receive: %s", buf);
-                // Close and remove the connection
-                close(fds[i].fd);
-                free_request(&requestP[fds[i].fd]);
-                fds[i] = fds[nfds - 1];  // Move last entry to the current slot
-                nfds--;
-                i--;  // Ensure we don't skip the next fd                
-            }
+            // Close and remove the connection
+            close(fds[i].fd);
+            free_request(&requestP[fds[i].fd]);
+            fds[i] = fds[nfds - 1];  // Move last entry to the current slot
+            nfds--;
+            i--;  // Ensure we don't skip the next fd                
         }
     }
 
