@@ -175,9 +175,6 @@ int main(int argc, char** argv) {
 
         // Check for I/O on existing connections
         for (i = 1; i < nfds; i++) {
-            
-#ifdef READ_SERVER      
-            write(requestP[fds[i].fd].conn_fd, read_shift_msg, strlen(read_shift_msg));
             if (fds[i].revents & POLLIN) { // 如果有資料可讀，則處理讀取操作
                 int ret = handle_read(&requestP[fds[i].fd]);
                 if (ret < 0) {
@@ -185,6 +182,9 @@ int main(int argc, char** argv) {
                     continue;
                 }
             }
+
+#ifdef READ_SERVER      
+            write(requestP[fds[i].fd].conn_fd, read_shift_msg, strlen(read_shift_msg));
             sprintf(buf,"%s : %s",accept_read_header,requestP[fds[i].fd].buf);
             write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
 #elif defined WRITE_SERVER
