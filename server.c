@@ -113,7 +113,29 @@ int print_train_info(request *reqP) {
     return 0;
 }
 #endif
-
+int read_train_file(int train_id, char *buf, size_t buf_len) {
+    FILE *fp;
+    char filename[FILE_LEN];
+    
+    // 取得檔案路徑
+    getfilepath(filename, train_id);
+    
+    // 打開檔案
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        perror("Error opening file");
+        return -1;
+    }
+    
+    // 讀取檔案內容
+    size_t n = fread(buf, 1, buf_len - 1, fp); // 讀取最多 buf_len - 1 字元
+    buf[n] = '\0';  // 確保 buf 以 NULL 字符結尾
+    
+    // 關閉檔案
+    fclose(fp);
+    
+    return 0;
+}
 int main(int argc, char** argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s [port]\n", argv[0]);
@@ -181,23 +203,28 @@ int main(int argc, char** argv) {
                     fprintf(stderr, "bad request from %s\n", requestP[fds[i].fd].host);
                     continue;
                 }
-            }
 
-#ifdef READ_SERVER      
-            write(requestP[fds[i].fd].conn_fd, read_shift_msg, strlen(read_shift_msg));
-            sprintf(buf,"%s : %s",accept_read_header,requestP[fds[i].fd].buf);
-            write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));
+            // 確保 write 只寫入到當前處理的客戶端
+            int client_fd = fds[i].fd; // 當前客戶端的文件描述符
+
+#ifdef READ_SERVER
+            write(client_fd, read_shift_msg, strlen(read_shift_msg)); // 寫入訊息到該客戶端
+            int train_id = atoi(requestP[client_fd].buf);
+            memset(buf, 0 , MAX_MSG_LEN*2);
+            read_train_file(train_id, buf, MAX_MSG_LEN*2);
+            write(client_fd, buf, strlen(buf)); // 寫入資料回應
 #elif defined WRITE_SERVER
             sprintf(buf,"%s : %s",accept_write_header,requestP[fds[i].fd].buf);
             write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));    
 #endif
-
-            // Close and remove the connection
-            close(fds[i].fd);
+            // Close and remove the connection：timeout、user input exit
+            /*close(fds[i].fd);
             free_request(&requestP[fds[i].fd]);
             fds[i] = fds[nfds - 1];  // Move last entry to the current slot
             nfds--;
-            i--;  // Ensure we don't skip the next fd                
+            i--;  // Ensure we don't skip the next fd   
+            */ 
+            }            
         }
     }
 
