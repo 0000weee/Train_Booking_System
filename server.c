@@ -208,10 +208,12 @@ int main(int argc, char** argv) {
             int client_fd = fds[i].fd; // 當前客戶端的文件描述符
 
 #ifdef READ_SERVER
-            write(client_fd, read_shift_msg, strlen(read_shift_msg)); // 寫入訊息到該客戶端
             int train_id = atoi(requestP[client_fd].buf);
+            if(train_id < 902001 || train_id > 902005)
+                write(client_fd, read_shift_msg, strlen(read_shift_msg)); // 寫入訊息到該客戶端 
             memset(buf, 0 , MAX_MSG_LEN*2);
             read_train_file(train_id, buf, MAX_MSG_LEN*2);
+            //printf("%s\n", buf);
             write(client_fd, buf, strlen(buf)); // 寫入資料回應
 #elif defined WRITE_SERVER
             sprintf(buf,"%s : %s",accept_write_header,requestP[fds[i].fd].buf);
