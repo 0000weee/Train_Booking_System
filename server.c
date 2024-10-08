@@ -140,7 +140,8 @@ int read_train_file(int train_id, char *buf, size_t buf_len) {
 }
 #ifdef WRITE_SERVER
 void write_invalid(request *reqP){
-    write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+    if(reqP->status == INVALID)
+        write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     int train_id = atoi(reqP->buf);
     if(train_id >902000 && train_id <902006){// Is valid: 902001 ~ 902005
         reqP->status = SHIFT;
@@ -148,6 +149,7 @@ void write_invalid(request *reqP){
 }
 void write_shift(request *reqP){
     print_train_info(reqP);
+    reqP->status = SEAT;
 }
 void write_seat(request *reqP){
 
@@ -237,19 +239,18 @@ int main(int argc, char** argv) {
             //printf("%s\n", buf);
             write(client_fd, buf, strlen(buf)); // 寫入資料回應
 #elif defined WRITE_SERVER
-            printf("%u\n", requestP[client_fd].status);
             if(requestP[client_fd].status == INVALID){
                 write_invalid(&requestP[client_fd]);
-            }else if(requestP[client_fd].status == SHIFT){
+            }
+            if(requestP[client_fd].status == SHIFT){
                 write_shift(&requestP[client_fd]);
-            }else if(requestP[client_fd].status == SEAT){
+            }
+            if(requestP[client_fd].status == SEAT){
                 write_seat(&requestP[client_fd]);
-            }else if(requestP[client_fd].status == BOOKED){
+            }
+            if(requestP[client_fd].status == BOOKED){
                 write_booked(&requestP[client_fd]);
-            }else{
-                perror("default: unknown status");
-            }    
-
+            }
 #endif
             // Close and remove the connection：timeout、user input exit
             /*close(fds[i].fd);
