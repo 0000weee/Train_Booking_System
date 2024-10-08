@@ -101,16 +101,16 @@ int print_train_info(request *reqP) {
      * |- Paid: 3,4
      */
     char buf[MAX_MSG_LEN*3];
-    char chosen_seat[MAX_MSG_LEN] = "";
-    char paid[MAX_MSG_LEN] = "";
-    int train_id = atoi(reqP->buf);
+    char chosen_seat[MAX_MSG_LEN] = "1,2";
+    char paid[MAX_MSG_LEN] = "3,4";
+
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
                  "|- Shift ID: %d\n"
                  "|- Chose seat(s): %s\n"
                  "|- Paid: %s\n\n"
-                 ,train_id, chosen_seat, paid);
-    printf("train_id: %d\n", train_id);
+                 ,902001, chosen_seat, paid);
+
     write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
@@ -138,6 +138,25 @@ int read_train_file(int train_id, char *buf, size_t buf_len) {
     
     return 0;
 }
+#ifdef WRITE_SERVER
+void write_invalid(request *reqP){
+    write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+    int train_id = atoi(reqP->buf);
+    if(train_id >902000 && train_id <902006){// Is valid: 902001 ~ 902005
+        reqP->status = SHIFT;
+    }
+}
+void write_shift(request *reqP){
+    print_train_info(reqP);
+}
+void write_seat(request *reqP){
+
+}
+void write_booked(request *reqP){
+
+}
+#endif
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s [port]\n", argv[0]);
@@ -218,15 +237,19 @@ int main(int argc, char** argv) {
             //printf("%s\n", buf);
             write(client_fd, buf, strlen(buf)); // 寫入資料回應
 #elif defined WRITE_SERVER
-            int train_id = atoi(requestP[client_fd].buf);
-            if(train_id < 902001 || train_id > 902005){
-                write(client_fd, write_shift_msg, strlen(write_shift_msg)); // 寫入訊息到該客戶端 
-            }else if(0){// fully booked
-                write(client_fd, full_msg, strlen(full_msg));
+            printf("%u\n", requestP[client_fd].status);
+            if(requestP[client_fd].status == INVALID){
+                write_invalid(&requestP[client_fd]);
+            }else if(requestP[client_fd].status == SHIFT){
+                write_shift(&requestP[client_fd]);
+            }else if(requestP[client_fd].status == SEAT){
+                write_seat(&requestP[client_fd]);
+            }else if(requestP[client_fd].status == BOOKED){
+                write_booked(&requestP[client_fd]);
             }else{
-                 print_train_info(&requestP[client_fd]);
-            }
-            write(client_fd, write_seat_msg, strlen(write_seat_msg));
+                perror("default: unknown status");
+            }    
+
 #endif
             // Close and remove the connection：timeout、user input exit
             /*close(fds[i].fd);
