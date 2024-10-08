@@ -140,12 +140,17 @@ int read_train_file(int train_id, char *buf, size_t buf_len) {
 }
 #ifdef WRITE_SERVER
 void write_invalid(request *reqP){
-    if(reqP->status == INVALID)
-        write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     int train_id = atoi(reqP->buf);
-    if(train_id >902000 && train_id <902006){// Is valid: 902001 ~ 902005
+    if(train_id<902001 || train_id > 902005){
+        write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+    }else{
         reqP->status = SHIFT;
     }
+    /*write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+    int train_id = atoi(reqP->buf);
+    if(train_id >902000 && train_id <902006){// Is valid: 902001 ~ 902005
+        reqP->status = SHIFT;    
+    }*/
 }
 void write_shift(request *reqP){
     print_train_info(reqP);
