@@ -103,13 +103,15 @@ int print_train_info(request *reqP) {
     char buf[MAX_MSG_LEN*3];
     char chosen_seat[MAX_MSG_LEN] = "1,2";
     char paid[MAX_MSG_LEN] = "3,4";
-
+    int train_id = atoi(reqP->buf);
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
                  "|- Shift ID: %d\n"
                  "|- Chose seat(s): %s\n"
                  "|- Paid: %s\n\n"
-                 ,902001, chosen_seat, paid);
+                 ,train_id, chosen_seat, paid);
+    printf("train_id: %d\n", train_id);
+    write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
 #endif
@@ -216,8 +218,14 @@ int main(int argc, char** argv) {
             //printf("%s\n", buf);
             write(client_fd, buf, strlen(buf)); // 寫入資料回應
 #elif defined WRITE_SERVER
-            sprintf(buf,"%s : %s",accept_write_header,requestP[fds[i].fd].buf);
-            write(requestP[fds[i].fd].conn_fd, buf, strlen(buf));    
+            int train_id = atoi(requestP[client_fd].buf);
+            if(train_id < 902001 || train_id > 902005){
+                write(client_fd, write_shift_msg, strlen(write_shift_msg)); // 寫入訊息到該客戶端 
+            }else if(0){// fully booked
+                write(client_fd, full_msg, strlen(full_msg));
+            }else{
+                 print_train_info(&requestP[client_fd]);
+            }
 #endif
             // Close and remove the connection：timeout、user input exit
             /*close(fds[i].fd);
