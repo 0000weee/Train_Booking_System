@@ -101,8 +101,8 @@ int print_train_info(request *reqP) {
      * |- Paid: 3,4
      */
     char buf[MAX_MSG_LEN*3];
-    char chosen_seat[MAX_MSG_LEN] = "1,2";
-    char paid[MAX_MSG_LEN] = "3,4";
+    char chosen_seat[MAX_MSG_LEN] = "";
+    char paid[MAX_MSG_LEN] = "";
     int train_id = atoi(reqP->buf);
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
@@ -226,6 +226,7 @@ int main(int argc, char** argv) {
             }else{
                  print_train_info(&requestP[client_fd]);
             }
+            write(client_fd, write_seat_msg, strlen(write_seat_msg));
 #endif
             // Close and remove the connection：timeout、user input exit
             /*close(fds[i].fd);
