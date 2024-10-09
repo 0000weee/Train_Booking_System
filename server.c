@@ -42,6 +42,7 @@ static void init_pollfd(struct pollfd *pollfdInfoP);
 // initialize a pollfd instance
 
 static void free_pollfd(struct pollfd *pollfdInfoP);
+// free resources used by a pollfd instance
 
 int accept_conn(void);
 // accept connection
@@ -174,13 +175,40 @@ int handle_read(request *reqP) {
     return 1;
 }
 
+void read_train_data(int train_fd, char *buf) {
+    lseek(train_fd, 0, SEEK_SET);
+    read(train_fd, buf, MAX_MSG_LEN);
+}
+
+void write_train_data_by_array(int train_fd, int *array) {
+    char buf[MAX_MSG_LEN];
+    memset(buf, 0, sizeof(buf));
+    for (int i = 0; i < SEAT_NUM; i++) {
+        sprintf(buf + strlen(buf), "%d ", array[i]);
+        if ((i % 4) == 3) {
+            sprintf(buf + strlen(buf), "\n");
+        }
+    }
+    lseek(train_fd, 0, SEEK_SET);
+    write(train_fd, buf, strlen(buf));
+}
+
+void convert_train_data_to_array(char *train_data, int *array) {
+    char *token = strtok(train_data, " \n");
+    int i = 0;
+    while (token != NULL) {
+        array[i] = atoi(token);
+        i++;
+        token = strtok(NULL, " \n");
+    }
+}
+
 #ifdef READ_SERVER
 
 int print_train_info(request *reqP, long train_id) {
     train_info *trainsP = &trains[train_id - TRAIN_ID_START];
     char buf[MAX_MSG_LEN];
-    lseek(trainsP->file_fd, 0, SEEK_SET);
-    read(trainsP->file_fd, buf, sizeof(buf));
+    read_train_data(trainsP->file_fd, buf);
     write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
@@ -196,6 +224,15 @@ void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
 
 #else
 
+void create_choosen_seat_string(request *reqP, char *chosen_seat) {
+    for (int i = 0; i < SEAT_NUM; i++)
+        if (reqP->booking_info.seat_stat[i] == SEAT_CHOSEN) {
+            sprintf(chosen_seat + strlen(chosen_seat), "%d,", i + 1);
+        }
+    if (chosen_seat[strlen(chosen_seat) - 1] == ',')
+        chosen_seat[strlen(chosen_seat) - 1] = '\0';
+}
+
 int print_train_info(request *reqP) {
     /*
      * Booking info
@@ -204,8 +241,11 @@ int print_train_info(request *reqP) {
      * |- Paid: 3,4
      */
     char buf[MAX_MSG_LEN * 3];
-    char chosen_seat[MAX_MSG_LEN] = "1,2";
+    char chosen_seat[MAX_MSG_LEN] = "";
     char paid[MAX_MSG_LEN] = "3,4";
+
+    // Construct chosen seat string
+    create_choosen_seat_string(reqP, chosen_seat);
 
     memset(buf, 0, sizeof(buf));
     sprintf(buf,
@@ -233,12 +273,70 @@ void handle_input_shift(request *reqP) {
 
     print_train_info(reqP);
     write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+}
+
+int lock_seat(request *reqP, long seat_id) {
+    // TODO: lock file
+
+    int result = 0;
+    char train_data_str[MAX_MSG_LEN];
+    int train_data_array[SEAT_NUM];
+    read_train_data(reqP->booking_info.train_fd, train_data_str);
+    convert_train_data_to_array(train_data_str, train_data_array);
+
+    if (train_data_array[seat_id - 1] == SEAT_CHOSEN) {
+        // Seat is chosen
+        result = SEAT_CHOSEN;
+    } else if (train_data_array[seat_id - 1] == SEAT_PAID) {
+        // Seat is paid
+        result = SEAT_PAID;
+    }
+
+    if (result == 0) {
+        reqP->booking_info.seat_stat[seat_id - 1] = SEAT_CHOSEN;
+        reqP->booking_info.num_of_chosen_seats++;
+        train_data_array[seat_id - 1] = SEAT_CHOSEN;
+        write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
+    } else if (result == SEAT_CHOSEN && reqP->booking_info.seat_stat[seat_id - 1] == SEAT_CHOSEN) {
+        reqP->booking_info.seat_stat[seat_id - 1] = SEAT_UNKNOWN;
+        reqP->booking_info.num_of_chosen_seats--;
+        train_data_array[seat_id - 1] = SEAT_UNKNOWN;
+        write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
+        write(reqP->conn_fd, cancel_msg, strlen(cancel_msg));
+    }
+
+    // TODO: unlock file
+
+    return result;
+}
+
+void handle_input_seat(request *reqP) {
+    if (!strncmp(reqP->buf, "pay", 3)) {
+        // TODO
+        return;
+    }
+
+    long seat_id;
+    int result = str_to_long(reqP->buf, &seat_id);
+    if (result != 0 || seat_id < 1 || SEAT_NUM < seat_id) {
+        write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+        return;
+    }
+
+    result = lock_seat(reqP, seat_id);
+    if (result == SEAT_CHOSEN) {
+        write(reqP->conn_fd, lock_msg, strlen(lock_msg));
+    } else if (result == SEAT_PAID) {
+        write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
+    }
+
     print_train_info(reqP);
     write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 
 void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
     if (!strncmp(reqP->buf, "exit", 4)) {
+        // TODO: write exit_msg to client
         fprintf(stderr, "[%d] %s", reqP->conn_fd, exit_msg);
         close(reqP->conn_fd);
         free_request(reqP);
@@ -251,6 +349,7 @@ void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
             handle_input_shift(reqP);
             break;
         case STATE_SEAT:
+            handle_input_seat(reqP);
             break;
         case STATE_BOOKED:
             break;
