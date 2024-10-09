@@ -54,14 +54,14 @@ static void init_request(request *reqP) {
     reqP->conn_fd = -1;
     reqP->client_id = -1;
     reqP->buf_len = 0;
-    reqP->status = INVALID;
+    reqP->status = STATE_INVALID;
     reqP->remaining_time.tv_sec = 5;
     reqP->remaining_time.tv_usec = 0;
 
     reqP->booking_info.num_of_chosen_seats = 0;
     reqP->booking_info.train_fd = -1;
     for (int i = 0; i < SEAT_NUM; i++)
-        reqP->booking_info.seat_stat[i] = UNKNOWN;
+        reqP->booking_info.seat_stat[i] = SEAT_UNKNOWN;
 }
 
 static void free_request(request *reqP) {

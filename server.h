@@ -35,16 +35,16 @@
 #define MAX_MSG_LEN 512
 
 enum STATE {
-    INVALID,  // Invalid state
-    SHIFT,    // Shift selection
-    SEAT,     // Seat selection
-    BOOKED    // Payment
+    STATE_INVALID,  // Invalid state
+    STATE_SHIFT,    // Shift selection
+    STATE_SEAT,     // Seat selection
+    STATE_BOOKED    // Payment
 };
 
 enum SEAT {
-    UNKNOWN,  // Seat is unknown
-    CHOSEN,   // Seat is currently being reserved
-    PAID      // Seat is already paid for
+    SEAT_UNKNOWN,  // Seat is unknown
+    SEAT_CHOSEN,   // Seat is currently being reserved
+    SEAT_PAID      // Seat is already paid for
 };
 
 typedef struct {
