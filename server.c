@@ -44,6 +44,18 @@ static void init_pollfd(struct pollfd *pollfdInfoP);
 static void free_pollfd(struct pollfd *pollfdInfoP);
 // free resources used by a pollfd instance
 
+void read_train_data(int train_fd, char *buf);
+// read train data to buffer
+
+void convert_train_data_to_array(char *train_data, int *array);
+// convert train data to array
+
+void read_train_data_array(int train_fd, int *array);
+// read train data to array
+
+void write_train_data_by_array(int train_fd, int *array);
+// write train data by array
+
 int accept_conn(void);
 // accept connection
 
@@ -72,7 +84,18 @@ static void init_request(request *reqP) {
 }
 
 static void free_request(request *reqP) {
-    // TODO: 把保留的座位釋出
+    // 把保留的座位釋出
+    // TODO: lock file
+    int train_data_array[SEAT_NUM];
+    read_train_data_array(reqP->booking_info.train_fd, train_data_array);
+    for (int i = 0; i < SEAT_NUM; i++) {
+        if (reqP->booking_info.seat_stat[i] == SEAT_CHOSEN) {
+            train_data_array[i] = SEAT_UNKNOWN;
+        }
+    }
+    write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
+    // TODO: unlock file
+
     memset(reqP, 0, sizeof(request));
     init_request(reqP);
 }
@@ -203,7 +226,7 @@ void write_train_data_by_array(int train_fd, int *array) {
     for (int i = 0; i < SEAT_NUM; i++) {
         sprintf(buf + strlen(buf), "%d ", array[i]);
         if ((i % 4) == 3) {
-            sprintf(buf + strlen(buf), "\n");
+            sprintf(buf + strlen(buf) - 1, "\n");
         }
     }
     lseek(train_fd, 0, SEEK_SET);
