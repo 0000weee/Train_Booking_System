@@ -1,5 +1,8 @@
 #include "server.h"
 
+#include <errno.h>
+#include <limits.h>
+
 const unsigned char IAC_IP[3] = "\xff\xf4";
 const char *file_prefix = "./csie_trains/train_";
 const char *accept_read_header = "ACCEPT_FROM_READ";
@@ -42,6 +45,9 @@ static void free_pollfd(struct pollfd *pollfdInfoP);
 
 int accept_conn(void);
 // accept connection
+
+int str_to_long(char *text, long *result);
+// convert string to long
 
 static void getfilepath(char *filepath, int extension);
 // get record filepath
@@ -255,6 +261,23 @@ int accept_conn(void) {
     num_conn++;
 
     return conn_fd;
+}
+
+int str_to_long(char *text, long *result) {
+    char *end;
+    long value = strtol(text, &end, 10);
+
+    if (errno == ERANGE && (value == LONG_MAX || value == LONG_MIN)) {
+        // Range error occurred
+        return -1;
+    }
+    if (end == text) {
+        // No result
+        return -1;
+    }
+
+    *result = value;
+    return 0;
 }
 
 static void getfilepath(char *filepath, int extension) {
