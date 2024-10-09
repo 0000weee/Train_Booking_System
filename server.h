@@ -24,6 +24,7 @@
 
 #define TRAIN_NUM 5
 #define SEAT_NUM 40
+#define ROW_SIZE 16
 #define TRAIN_ID_START 902001
 #define TRAIN_ID_END TRAIN_ID_START + (TRAIN_NUM - 1)
 #define FILE_LEN 50

@@ -82,34 +82,30 @@ int handle_read(request* reqP) {
 
 #ifdef READ_SERVER
 int print_train_info(request *reqP) {
-    
-    int i;
-    char buf[MAX_MSG_LEN];
+    int train_fd = reqP->booking_info.train_fd;  // 獲取 train_fd
+    char buf[MAX_MSG_LEN];  // 用於存放讀取到的數據
 
-    memset(buf, 0, sizeof(buf));
-    for (i = 0; i < SEAT_NUM / 4; i++) {
-        sprintf(buf + (i * 4 * 2), "%d %d %d %d\n", 0, 0, 0, 0);
-    }
-    return 0;
-}
-int read_train_file(int train_id, char *buf, size_t buf_len) {
-    FILE *fp;
-    char filename[FILE_LEN];
-    getfilepath(filename, train_id);
-    
-    fp = fopen(filename, "r");
-    if (fp == NULL) {
-        perror("Error opening file");
+    // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
+    if (lseek(train_fd, 0, SEEK_SET) == -1) {
+        perror("lseek failed");
         return -1;
-    }    
-    // 讀取檔案內容
-    size_t n = fread(buf, 1, buf_len - 1, fp); // 讀取最多 buf_len - 1 字元
-    buf[n] = '\0';  // 確保 buf 以 NULL 字符結尾
-    
-    // 關閉檔案
-    fclose(fp);   
-    return 0;
+    }
+
+    // 讀取檔案內容到 buf
+    ssize_t n_read = read(train_fd, buf, MAX_MSG_LEN);
+    if (n_read == -1) {
+        perror("read failed");
+        return -1;
+    }
+
+    // 確保 buf 以 NULL 結尾
+    buf[n_read] = '\0';
+
+    // 複製座位信息到 reqP->buf，以便之後發送給客戶端
+    strncpy(reqP->buf, buf, MAX_MSG_LEN);
+    return 0;  // 成功返回 0
 }
+
 
 #else
 int print_train_info(request *reqP) {
@@ -122,14 +118,28 @@ int print_train_info(request *reqP) {
     char buf[MAX_MSG_LEN*3];
     char chosen_seat[MAX_MSG_LEN] = "";
     char paid[MAX_MSG_LEN] = "";
-    for(int i=0; i<SEAT_NUM; i++){
-        int seat_stat = reqP->booking_info.seat_stat[i];
-        if( seat_stat == CHOSEN){
-            char  buffer[3];
-            sprintf(buffer, "%d", i);
-            strcat(chosen_seat, buffer);
+    for (int i = 0; i < SEAT_NUM; i++) {
+        switch (reqP->booking_info.seat_stat[i]) { // 座位的狀態
+            case UNKNOWN:
+                break;
+            case CHOSEN:
+                // 如果 chosen_seat 不是空的，則先加上逗號，然後追加座位號
+                if (strlen(chosen_seat) > 0) {
+                    sprintf(chosen_seat + strlen(chosen_seat), ",%d", i + 1); // 座位號 i+1，座位號從 1 開始計算
+                } else {
+                    sprintf(chosen_seat, "%d", i + 1); // 首個座位不需要加逗號
+                }
+                break;
+            case PAID:
+                // 已支付座位，不做處理
+                break;
+            default:
+                break;
         }
     }
+
+    // 在這裡你可以使用 chosen_seat，例如打印或傳遞給其他函數
+    printf("User:%d Chosen seats: %s\n", reqP->client_id, chosen_seat);
 
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
@@ -142,58 +152,152 @@ int print_train_info(request *reqP) {
     return 0;
 }
 
-void update_seat_stat(record* booking_info){
-    char buf[FILE_LEN];
-    read(booking_info->train_fd, buf, FILE_LEN); 
-    for(int i=0; i<SEAT_NUM; i++){
-        booking_info->seat_stat[i] = CHOSEN; // char to int
-    }
+int fully_booked(int fd){
+    char Fully_seat[FILE_LEN] = "1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n";
+    char Current_seat[FILE_LEN];
+    read(fd, Current_seat, FILE_LEN);
+    return (strcmp( Current_seat, Fully_seat) == 0)? 1 : 0 ;
 }
 
-void handle_invalid_input(request *reqP){
+void handle_shift_input(request *reqP){
     int train_id = atoi(reqP->buf);
     if(train_id<TRAIN_ID_START || train_id > TRAIN_ID_END){
         write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     }else{
-        reqP->status = SHIFT;
-        reqP->booking_info.shift_id = train_id;
-        //reqP->booking_info.train_fd = trains[train_id-TRAIN_ID_START].file_fd;
-        //update_seat_stat(&(reqP->booking_info));
+        if(fully_booked(reqP->booking_info.train_fd)){
+            write(reqP->conn_fd, full_msg, strlen(full_msg));
+            write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+        }else{
+            // update booking_info
+            reqP->booking_info.shift_id = train_id;
+            reqP->booking_info.train_fd = trains[train_id - TRAIN_ID_START].file_fd;    
+            print_train_info(reqP);
+
+            reqP->status = SEAT;
+            write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+        }
+        
     }
 }
-void handle_shift_input(request *reqP){
-    print_train_info(reqP);
-    reqP->status = SEAT;
-}
-void handle_seat_input(request *reqP){
-    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
-    int chosen_seat = atoi(reqP->buf);
-    //reqP->booking_info.seat_stat[chosen_seat] = CHOSEN;//update seat_stat[SEAT_NUM]
 
+void Write_Back_Data(int fd, int seat_id, enum SEAT seat_status) {
+    if (seat_id < 1 || seat_id > SEAT_NUM) {
+        printf("Invalid seat_id\n");
+        return;
+    }
+
+    // 計算 seat_id 對應的文件偏移位置
+    int row = (seat_id - 1) / 4;  // 計算座位在哪一行
+    int col = (seat_id - 1) % 4;  // 計算座位在哪一列
+    off_t offset = row * ROW_SIZE + col * 2; // 每列2個字元, ROW_SIZE表示每行字元數 (數字 + 空格)
+
+    // 根據座位狀態設置要寫入的字符
+    char seat_char;
+    switch (seat_status) {
+        case UNKNOWN:
+            seat_char = '0';
+            break;
+        case CHOSEN:
+            seat_char = '1';
+            break;
+        case PAID:
+            seat_char = '2';
+            break;
+        default:
+            printf("Invalid seat status\n");
+            return;
+    }
+
+    // 定位到檔案中的指定偏移量
+    if (lseek(fd, offset, SEEK_SET) == -1) {
+        perror("lseek failed");
+        return;
+    }
+
+    // 寫入座位狀態字符
+    if (write(fd, &seat_char, 1) == -1) {
+        perror("write failed");
+        return;
+    }
+
+    printf("Seat %d updated successfully with status %d.\n", seat_id, seat_status);
+}
+
+int Check_Seat_Stat(int fd, int seat_id) {
+    if (seat_id < 1 || seat_id > SEAT_NUM) {
+        printf("Invalid seat_id\n");
+        return -1; // 返回錯誤
+    }
+
+    // 計算 seat_id 對應的文件偏移位置
+    int row = (seat_id - 1) / 4;  // 計算座位在哪一行
+    int col = (seat_id - 1) % 4;  // 計算座位在哪一列
+    off_t offset = row * ROW_SIZE + col * 2; // 每列2個字元 (數字 + 空格)
+
+    // 定位到檔案中的指定偏移量
+    if (lseek(fd, offset, SEEK_SET) == -1) {
+        perror("lseek failed");
+        return -1;
+    }
+
+    // 讀取座位狀態字符
+    char seat_char;
+    if (read(fd, &seat_char, 1) == -1) {
+        perror("read failed");
+        return -1;
+    }
+
+    // 返回對應的 enum SEAT 狀態
+    switch (seat_char) {
+        case '0':
+            return UNKNOWN;
+        case '1':
+            return CHOSEN;
+        case '2':
+            return PAID;
+        default:
+            printf("Unknown seat status: %c\n", seat_char);
+            return -1; // 不認識的狀態
+    }
+}
+
+
+void handle_seat_input(request *reqP){
+    int seat_id = atoi(reqP->buf);
+    switch( Check_Seat_Stat(reqP->booking_info.train_fd, seat_id)){ // Public data
+        case UNKNOWN:
+            reqP->booking_info.seat_stat[seat_id -1] = CHOSEN;//update seat_stat[SEAT_NUM]
+            reqP->booking_info.num_of_chosen_seats ++;
+
+            print_train_info(reqP);
+            Write_Back_Data(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
+            break;
+        case CHOSEN:
+            //write(reqP->conn_fd, lock_msg, strlen(lock_msg));
+            if(reqP->booking_info.seat_stat[seat_id -1] == CHOSEN){
+                reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
+                reqP->booking_info.num_of_chosen_seats --;
+                print_train_info(reqP);
+                Write_Back_Data(reqP->booking_info.train_fd, seat_id, UNKNOWN);
+            }else{
+                write(reqP->conn_fd, lock_msg, strlen(lock_msg));
+            }            
+            break;
+
+        case BOOKED:
+            write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
+            break;
+        default:
+            break;                
+
+    }
+    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 void handle_booked_input(request *reqP){
 
 }
 #endif
 
-int Get_train_fd(int train_id) {
-    int fd;
-    char filepath[FILE_LEN*3];
-    
-    getfilepath(filepath, train_id);  // 確認路徑正確
-    
-    #ifdef READ_SERVER    
-        fd = open(filepath, O_RDONLY);
-    #elif defined WRITE_SERVER
-        fd = open(filepath, O_WRONLY);
-    #endif
-    
-    if (fd < 0) {
-        perror("Error opening file");
-        return -1;
-    }
-    return fd;
-}
 
 
 int main(int argc, char** argv) {
@@ -202,7 +306,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    
     int conn_fd;  // fd for file that we open for reading
     char buf[MAX_MSG_LEN*2], filename[FILE_LEN];
 
@@ -227,11 +330,6 @@ int main(int argc, char** argv) {
     // Loop for handling connections
 
     fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
-    
-    // Get trains fds
-    for(int i= TRAIN_ID_START; i<= TRAIN_ID_END; i++){
-        trains[i-TRAIN_ID_START].file_fd = Get_train_fd(i);
-    }
 
     // Create pollfd array
     struct pollfd fds[MAX_CLIENTS + 1];
@@ -284,23 +382,19 @@ int main(int argc, char** argv) {
                     // 如果輸入無效班次，提示訊息
                     write(client_fd, read_shift_msg, strlen(read_shift_msg)); 
                 } else {
-                    // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
-                    if (lseek(trains[train_id - TRAIN_ID_START].file_fd, 0, SEEK_SET) == -1) {
-                        perror("lseek failed");
-                    } else {
-                        // 清空緩衝區，避免殘留數據
-                        memset(buf, 0, MAX_MSG_LEN * 2);
+                    // Update booking_info
+                    requestP[client_fd].booking_info.shift_id = train_id;  // 存儲 train_id
+                    int train_fd = trains[train_id - TRAIN_ID_START].file_fd;
+                    requestP[client_fd].booking_info.train_fd = train_fd;  // 存儲 train_fd
 
-                        // 讀取檔案內容
-                        ssize_t n_read = read(trains[train_id - TRAIN_ID_START].file_fd, buf, MAX_MSG_LEN * 2);
-                        
-                        // 檢查讀取是否成功
-                        if (n_read == -1) {
-                            perror("read failed");
-                        } else {
-                            // 回傳讀取到的數據給客戶端
-                            write(client_fd, buf, n_read);
-                        }
+                    // 呼叫 print_train_info 函數來處理座位訊息
+                    if (print_train_info(&requestP[client_fd]) == 0) {
+                        // 成功生成座位訊息後，將其發送給客戶端
+                        write(client_fd, requestP[client_fd].buf, strlen(requestP[client_fd].buf));
+                        write(client_fd, read_shift_msg, strlen(read_shift_msg));
+                    } else {
+                        // 若 print_train_info 失敗，則提示錯誤
+                        perror("print_train_info failed");
                     }
                 }
 
