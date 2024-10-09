@@ -215,13 +215,13 @@ void convert_train_data_to_array(char *train_data, int *array) {
 }
 
 void read_train_data_array(int train_fd, int *array) {
-    char buf[MAX_MSG_LEN];
+    char buf[MAX_MSG_LEN] = {0};
     read_train_data(train_fd, buf);
     convert_train_data_to_array(buf, array);
 }
 
 void write_train_data_by_array(int train_fd, int *array) {
-    char buf[MAX_MSG_LEN];
+    char buf[MAX_MSG_LEN] = {0};
     memset(buf, 0, sizeof(buf));
     for (int i = 0; i < SEAT_NUM; i++) {
         sprintf(buf + strlen(buf), "%d ", array[i]);
