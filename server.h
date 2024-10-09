@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,6 +78,7 @@ typedef struct {
 // Global variable
 server svr;                // server
 request *requestP = NULL;  // point to a list of requests
+struct pollfd *pollfdP;    // point to a list of pollfd
 train_info trains[TRAIN_NUM];
 int maxfd;  // size of open file descriptor table, size of request list
 int num_conn = 1;

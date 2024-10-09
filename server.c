@@ -35,6 +35,11 @@ static void init_request(request *reqP);
 static void free_request(request *reqP);
 // free resources used by a request instance
 
+static void init_pollfd(struct pollfd *pollfdInfoP);
+// initialize a pollfd instance
+
+static void free_pollfd(struct pollfd *pollfdInfoP);
+
 int accept_conn(void);
 // accept connection
 
@@ -62,6 +67,17 @@ static void init_request(request *reqP) {
 static void free_request(request *reqP) {
     memset(reqP, 0, sizeof(request));
     init_request(reqP);
+}
+
+static void init_pollfd(struct pollfd *pollfdInfoP) {
+    pollfdInfoP->fd = -1;
+    pollfdInfoP->events = POLLIN;
+    pollfdInfoP->revents = 0;
+}
+
+static void free_pollfd(struct pollfd *pollfdInfoP) {
+    memset(pollfdInfoP, 0, sizeof(struct pollfd));
+    init_pollfd(pollfdInfoP);
 }
 
 static void init_server(unsigned short port) {
@@ -92,16 +108,22 @@ static void init_server(unsigned short port) {
         ERR_EXIT("listen");
     }
 
-    // Get file descripter table size and initialize request table
+    // Get file descripter table size and initialize request table and pollfd table
     maxfd = getdtablesize();
     requestP = (request *)malloc(sizeof(request) * maxfd);
     if (requestP == NULL) {
         ERR_EXIT("out of memory allocating all requests");
     }
+    pollfdP = (struct pollfd *)malloc(sizeof(struct pollfd) * maxfd);
+    if (pollfdP == NULL) {
+        ERR_EXIT("out of memory allocating all requests");
+    }
     for (int i = 0; i < maxfd; i++) {
         init_request(&requestP[i]);
+        init_pollfd(&pollfdP[i]);
     }
     requestP[svr.listen_fd].conn_fd = svr.listen_fd;
+    pollfdP[svr.listen_fd].fd = svr.listen_fd;
     strcpy(requestP[svr.listen_fd].host, svr.hostname);
 
     return;
@@ -147,6 +169,7 @@ int handle_read(request *reqP) {
 }
 
 #ifdef READ_SERVER
+
 int print_train_info(request *reqP) {
     int i;
     char buf[MAX_MSG_LEN];
@@ -157,7 +180,20 @@ int print_train_info(request *reqP) {
     }
     return 0;
 }
+
+void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
+    char buf[MAX_MSG_LEN * 2];
+    sprintf(buf, "%s : %s\n", accept_read_header, reqP->buf);
+    write(reqP->conn_fd, buf, strlen(buf));
+
+    // TODO: 在需要關閉的時候才關閉連線
+    close(reqP->conn_fd);
+    free_request(reqP);
+    free_pollfd(pollfdInfoP);
+}
+
 #else
+
 int print_train_info(request *reqP) {
     /*
      * Booking info
@@ -178,31 +214,43 @@ int print_train_info(request *reqP) {
             902001, chosen_seat, paid);
     return 0;
 }
+
+void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
+    char buf[MAX_MSG_LEN * 2];
+    sprintf(buf, "%s : %s\n", accept_write_header, reqP->buf);
+    write(reqP->conn_fd, buf, strlen(buf));
+
+    // TODO: 在需要關閉的時候才關閉連線
+    close(reqP->conn_fd);
+    free_request(reqP);
+    free_pollfd(pollfdInfoP);
+}
+
 #endif
 
 int accept_conn(void) {
-    struct sockaddr_in cliaddr;
-    size_t clilen;
+    struct sockaddr_in client_address;
+    size_t client_size;
     int conn_fd;  // fd for a new connection with client
 
-    clilen = sizeof(cliaddr);
-    conn_fd = accept(svr.listen_fd, (struct sockaddr *)&cliaddr, (socklen_t *)&clilen);
+    client_size = sizeof(client_address);
+    conn_fd = accept(svr.listen_fd, (struct sockaddr *)&client_address, (socklen_t *)&client_size);
     if (conn_fd < 0) {
-        if (errno == EINTR || errno == EAGAIN)
+        if (errno == EINTR || errno == EAGAIN) {
             return -1;  // try again
-        if (errno == ENFILE) {
-            (void)fprintf(stderr, "out of file descriptor table ... (maxconn %d)\n",
-                          maxfd);
+        } else if (errno == ENFILE) {
+            (void)fprintf(stderr, "out of file descriptor table ... (maxconn %d)\n", maxfd);
             return -1;
         }
         ERR_EXIT("accept");
     }
 
     requestP[conn_fd].conn_fd = conn_fd;
-    strcpy(requestP[conn_fd].host, inet_ntoa(cliaddr.sin_addr));
+    strcpy(requestP[conn_fd].host, inet_ntoa(client_address.sin_addr));
     fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd,
             requestP[conn_fd].host);
     requestP[conn_fd].client_id = (svr.port * 1000) + num_conn;  // This should be unique for the same machine.
+    pollfdP[conn_fd].fd = conn_fd;
     num_conn++;
 
     return conn_fd;
@@ -224,8 +272,9 @@ int main(int argc, char **argv) {
     }
 
     int conn_fd;  // fd for file that we open for reading
-    char buf[MAX_MSG_LEN * 2], filename[FILE_LEN];
+    char filename[FILE_LEN];
 
+    int ret;
     int i, j;
 
     for (i = TRAIN_ID_START, j = 0; i <= TRAIN_ID_END; i++, j++) {
@@ -246,40 +295,57 @@ int main(int argc, char **argv) {
     init_server((unsigned short)atoi(argv[1]));
 
     // Loop for handling connections
-    fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n",
-            svr.hostname, svr.port, svr.listen_fd, maxfd);
+    fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
 
     while (1) {
-        // TODO: Add IO multiplexing
-
-        // Check new connection
-        conn_fd = accept_conn();
-        if (conn_fd < 0)
+        ret = poll(pollfdP, maxfd, 10);
+        if (ret == 0) {
+            // timeout, sleep 100 microseconds
+            usleep(100);
             continue;
-
-        int ret = handle_read(&requestP[conn_fd]);
-        if (ret < 0) {
-            fprintf(stderr, "bad request from %s\n", requestP[conn_fd].host);
-            continue;
+        } else if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            printf("errno: %d\n", errno);
+            ERR_EXIT("poll fail");
         }
 
-        // TODO: handle requests from clients
-#ifdef READ_SERVER
-        sprintf(buf, "%s : %s", accept_read_header, requestP[conn_fd].buf);
-        write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+        if (pollfdP[svr.listen_fd].revents & POLLIN) {
+            // Check new connection
+            conn_fd = accept_conn();
+            if (conn_fd < 0)
+                continue;
+            write(conn_fd, welcome_banner, strlen(welcome_banner));
+#if defined READ_SERVER
+            write(conn_fd, read_shift_msg, strlen(read_shift_msg));
 #elif defined WRITE_SERVER
-        sprintf(buf, "%s : %s", accept_write_header, requestP[conn_fd].buf);
-        write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+            write(conn_fd, write_shift_msg, strlen(write_shift_msg));
 #endif
+        }
 
-        close(requestP[conn_fd].conn_fd);
-        free_request(&requestP[conn_fd]);
+        for (i = 0; i < maxfd; i++) {
+            if (i == svr.listen_fd || requestP[i].conn_fd < 0) {
+                continue;
+            }
+
+            if (pollfdP[i].revents & POLLIN) {
+                ret = handle_read(&requestP[i]);
+                if (ret < 0) {
+                    fprintf(stderr, "bad request from %s\n", requestP[i].host);
+                    continue;
+                }
+
+                handle_client_input(&requestP[i], &pollfdP[i]);
+            }
+        }
     }
 
     free(requestP);
     close(svr.listen_fd);
-    for (i = 0; i < TRAIN_NUM; i++)
+    for (i = 0; i < TRAIN_NUM; i++) {
         close(trains[i].file_fd);
+    }
 
     return 0;
 }
