@@ -29,6 +29,10 @@ char *write_seat_msg = "Select the seat [1-40] or type \"pay\" to confirm: ";
 char *write_seat_or_exit_msg = "Type \"seat\" to continue or \"exit\" to quit [seat/exit]: ";
 #endif
 
+int lock_file(int fd, struct flock *lock);
+
+int unlock_file(int fd, struct flock *lock);
+
 static void init_server(unsigned short port);
 // initailize a server, exit for error
 
@@ -69,6 +73,32 @@ static void getfilepath(char *filepath, int extension);
 // You don't need to know how the following codes are working
 #include <fcntl.h>
 
+int lock_file(int fd, struct flock *lock) {
+    lock->l_type = F_WRLCK;     // Exclusive write lock (blocks reads and writes)
+    lock->l_whence = SEEK_SET;  // Lock from the beginning of the file
+    lock->l_start = 0;          // Start of the file
+    lock->l_len = 0;            // 0 means lock the entire file
+
+    // Apply the lock using fcntl (F_SETLKW to wait for lock)
+    if (fcntl(fd, F_SETLKW, lock) == -1) {
+        perror("Error locking file");
+        return -1;
+    }
+    return 0;
+}
+
+int unlock_file(int fd, struct flock *lock) {
+    lock->l_type = F_UNLCK;  // Unlock the file
+    lock->l_whence = SEEK_SET;
+    lock->l_start = 0;
+    lock->l_len = 0;
+    if (fcntl(fd, F_SETLK, lock) == -1) {
+        perror("Error unlocking file");
+        return -1;
+    }
+    return 0;
+}
+
 static void init_request(request *reqP) {
     reqP->conn_fd = -1;
     reqP->client_id = -1;
@@ -84,17 +114,22 @@ static void init_request(request *reqP) {
 }
 
 static void free_request(request *reqP) {
-    // 把保留的座位釋出
-    // TODO: lock file
-    int train_data_array[SEAT_NUM];
-    read_train_data_array(reqP->booking_info.train_fd, train_data_array);
-    for (int i = 0; i < SEAT_NUM; i++) {
-        if (reqP->booking_info.seat_stat[i] == SEAT_CHOSEN) {
-            train_data_array[i] = SEAT_UNKNOWN;
+    if (reqP->booking_info.train_fd != -1) {
+        // 把保留的座位釋出
+        struct flock lock;
+        lock_file(reqP->booking_info.train_fd, &lock);
+
+        int train_data_array[SEAT_NUM];
+        read_train_data_array(reqP->booking_info.train_fd, train_data_array);
+        for (int i = 0; i < SEAT_NUM; i++) {
+            if (reqP->booking_info.seat_stat[i] == SEAT_CHOSEN) {
+                train_data_array[i] = SEAT_UNKNOWN;
+            }
         }
+        write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
+
+        unlock_file(reqP->booking_info.train_fd, &lock);
     }
-    write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
-    // TODO: unlock file
 
     memset(reqP, 0, sizeof(request));
     init_request(reqP);
@@ -308,7 +343,8 @@ void handle_input_shift(request *reqP) {
 }
 
 int lock_seat(request *reqP, long seat_id) {
-    // TODO: lock file
+    struct flock lock;
+    lock_file(reqP->booking_info.train_fd, &lock);
 
     int result = 0;
     int train_data_array[SEAT_NUM];
@@ -335,7 +371,7 @@ int lock_seat(request *reqP, long seat_id) {
         write(reqP->conn_fd, cancel_msg, strlen(cancel_msg));
     }
 
-    // TODO: unlock file
+    unlock_file(reqP->booking_info.train_fd, &lock);
 
     return result;
 }
@@ -349,7 +385,8 @@ void pay_seat(request *reqP) {
         return;
     }
 
-    // TODO: lock file
+    struct flock lock;
+    lock_file(reqP->booking_info.train_fd, &lock);
 
     int train_data_array[SEAT_NUM];
     read_train_data_array(reqP->booking_info.train_fd, train_data_array);
@@ -362,7 +399,7 @@ void pay_seat(request *reqP) {
     }
     write_train_data_by_array(reqP->booking_info.train_fd, train_data_array);
 
-    // TODO: unlock file
+    unlock_file(reqP->booking_info.train_fd, &lock);
 
     reqP->booking_info.num_of_chosen_seats = 0;
     reqP->status = STATE_BOOKED;
