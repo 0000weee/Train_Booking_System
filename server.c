@@ -329,7 +329,14 @@ void handle_seat_input(request *reqP){
     write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 void handle_booked_input(request *reqP){
-
+    if(strcmp(reqP->buf, "exit") == 0){
+        write(reqP->conn_fd, exit_msg, strlen(exit_msg));
+        close(reqP->conn_fd);
+        free_request(reqP);
+    }else if(strcmp(reqP->buf, "seat") == 0){
+        reqP->status = SEAT;
+        write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+    }
 }
 #endif
 
