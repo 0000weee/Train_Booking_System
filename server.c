@@ -263,34 +263,52 @@ int Check_Seat_Stat(int fd, int seat_id) {
 
 
 void handle_seat_input(request *reqP){
-    int seat_id = atoi(reqP->buf);
-    switch( Check_Seat_Stat(reqP->booking_info.train_fd, seat_id)){ // Public data
-        case UNKNOWN:
-            reqP->booking_info.seat_stat[seat_id -1] = CHOSEN;//update seat_stat[SEAT_NUM]
-            reqP->booking_info.num_of_chosen_seats ++;
-
+    if(strcmp("pay", reqP->buf) == 0){
+        if(reqP->booking_info.num_of_chosen_seats == 0){
+            write(reqP->conn_fd, no_seat_msg, strlen(no_seat_msg));
             print_train_info(reqP);
-            Write_Back_Data(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
-            break;
-        case CHOSEN:
-            //write(reqP->conn_fd, lock_msg, strlen(lock_msg));
-            if(reqP->booking_info.seat_stat[seat_id -1] == CHOSEN){
-                reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
-                reqP->booking_info.num_of_chosen_seats --;
+        }
+        for(int i=1; i<= TRAIN_NUM; i++){
+            if(reqP->booking_info.seat_stat[i] == CHOSEN){
+                reqP->booking_info.seat_stat[i] = PAID;
+                Write_Back_Data(reqP->booking_info.train_fd, i, PAID);  
+            }    
+        }
+        reqP->status = BOOKED;
+        write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));
+
+        print_train_info(reqP);         
+        write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
+
+    }else{
+        int seat_id = atoi(reqP->buf);
+        switch( Check_Seat_Stat(reqP->booking_info.train_fd, seat_id)){ // Public data
+            case UNKNOWN:
+                reqP->booking_info.seat_stat[seat_id -1] = CHOSEN;//update seat_stat[SEAT_NUM]
+                reqP->booking_info.num_of_chosen_seats ++;
+
                 print_train_info(reqP);
-                Write_Back_Data(reqP->booking_info.train_fd, seat_id, UNKNOWN);
-            }else{
-                write(reqP->conn_fd, lock_msg, strlen(lock_msg));
-            }            
-            break;
+                Write_Back_Data(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
+                break;
+            case CHOSEN:
+                //write(reqP->conn_fd, lock_msg, strlen(lock_msg));
+                if(reqP->booking_info.seat_stat[seat_id -1] == CHOSEN){
+                    reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
+                    reqP->booking_info.num_of_chosen_seats --;
+                    print_train_info(reqP);
+                    Write_Back_Data(reqP->booking_info.train_fd, seat_id, UNKNOWN);
+                }else{
+                    write(reqP->conn_fd, lock_msg, strlen(lock_msg));
+                }            
+                break;
 
-        case BOOKED:
-            write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
-            break;
-        default:
-            break;                
-
-    }
+            case BOOKED:
+                write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
+                break;
+            default:
+                break;                
+        }
+    }    
     write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 void handle_booked_input(request *reqP){
