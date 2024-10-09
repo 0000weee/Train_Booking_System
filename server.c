@@ -213,19 +213,50 @@ int print_train_info(request *reqP) {
             "|- Shift ID: %d\n"
             "|- Chose seat(s): %s\n"
             "|- Paid: %s\n\n",
-            902001, chosen_seat, paid);
+            reqP->booking_info.shift_id, chosen_seat, paid);
+
+    write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
 
-void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
-    char buf[MAX_MSG_LEN * 2];
-    sprintf(buf, "%s : %s\n", accept_write_header, reqP->buf);
-    write(reqP->conn_fd, buf, strlen(buf));
+void handle_input_shift(request *reqP) {
+    long train_id;
+    int result = str_to_long(reqP->buf, &train_id);
+    if (result != 0 || train_id < TRAIN_ID_START || TRAIN_ID_END < train_id) {
+        write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
+        return;
+    }
 
-    // TODO: 在需要關閉的時候才關閉連線
-    close(reqP->conn_fd);
-    free_request(reqP);
-    free_pollfd(pollfdInfoP);
+    reqP->booking_info.shift_id = train_id;
+    reqP->booking_info.train_fd = trains[train_id - TRAIN_ID_START].file_fd;
+    reqP->status = STATE_SEAT;
+
+    print_train_info(reqP);
+    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+    print_train_info(reqP);
+    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+}
+
+void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
+    if (!strncmp(reqP->buf, "exit", 4)) {
+        fprintf(stderr, "[%d] %s", reqP->conn_fd, exit_msg);
+        close(reqP->conn_fd);
+        free_request(reqP);
+        free_pollfd(pollfdInfoP);
+        return;
+    }
+
+    switch (reqP->status) {
+        case STATE_SHIFT:
+            handle_input_shift(reqP);
+            break;
+        case STATE_SEAT:
+            break;
+        case STATE_BOOKED:
+            break;
+        default:
+            break;
+    }
 }
 
 #endif
@@ -353,6 +384,12 @@ int main(int argc, char **argv) {
                 ret = handle_read(&requestP[i]);
                 if (ret < 0) {
                     fprintf(stderr, "bad request from %s\n", requestP[i].host);
+                    continue;
+                } else if (ret == 0) {
+                    fprintf(stderr, "client close fd %d\n", requestP[i].conn_fd);
+                    close(requestP[i].conn_fd);
+                    free_request(&requestP[i]);
+                    free_pollfd(&pollfdP[i]);
                     continue;
                 }
 

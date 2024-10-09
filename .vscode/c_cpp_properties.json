@@ -6,7 +6,8 @@
                 "${workspaceFolder}/**"
             ],
             "defines": [
-                "READ_SERVER"
+                // "READ_SERVER"
+                "WRITE_SERVER"
             ],
             "macFrameworkPath": [
                 "/System/Library/Frameworks",
