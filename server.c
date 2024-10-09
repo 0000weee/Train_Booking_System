@@ -92,6 +92,25 @@ int print_train_info(request *reqP) {
     }
     return 0;
 }
+int read_train_file(int train_id, char *buf, size_t buf_len) {
+    FILE *fp;
+    char filename[FILE_LEN];
+    getfilepath(filename, train_id);
+    
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        perror("Error opening file");
+        return -1;
+    }    
+    // 讀取檔案內容
+    size_t n = fread(buf, 1, buf_len - 1, fp); // 讀取最多 buf_len - 1 字元
+    buf[n] = '\0';  // 確保 buf 以 NULL 字符結尾
+    
+    // 關閉檔案
+    fclose(fp);   
+    return 0;
+}
+
 #else
 int print_train_info(request *reqP) {
     /*
@@ -101,68 +120,81 @@ int print_train_info(request *reqP) {
      * |- Paid: 3,4
      */
     char buf[MAX_MSG_LEN*3];
-    char chosen_seat[MAX_MSG_LEN] = "1,2";
-    char paid[MAX_MSG_LEN] = "3,4";
+    char chosen_seat[MAX_MSG_LEN] = "";
+    char paid[MAX_MSG_LEN] = "";
+    for(int i=0; i<SEAT_NUM; i++){
+        int seat_stat = reqP->booking_info.seat_stat[i];
+        if( seat_stat == CHOSEN){
+            char  buffer[3];
+            sprintf(buffer, "%d", i);
+            strcat(chosen_seat, buffer);
+        }
+    }
 
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
                  "|- Shift ID: %d\n"
                  "|- Chose seat(s): %s\n"
                  "|- Paid: %s\n\n"
-                 ,902001, chosen_seat, paid);
+                 ,reqP->booking_info.shift_id, chosen_seat, paid);
 
     write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
-#endif
-int read_train_file(int train_id, char *buf, size_t buf_len) {
-    FILE *fp;
-    char filename[FILE_LEN];
-    
-    // 取得檔案路徑
-    getfilepath(filename, train_id);
-    
-    // 打開檔案
-    fp = fopen(filename, "r");
-    if (fp == NULL) {
-        perror("Error opening file");
-        return -1;
+
+void update_seat_stat(record* booking_info){
+    char buf[FILE_LEN];
+    read(booking_info->train_fd, buf, FILE_LEN); 
+    for(int i=0; i<SEAT_NUM; i++){
+        booking_info->seat_stat[i] = CHOSEN; // char to int
     }
-    
-    // 讀取檔案內容
-    size_t n = fread(buf, 1, buf_len - 1, fp); // 讀取最多 buf_len - 1 字元
-    buf[n] = '\0';  // 確保 buf 以 NULL 字符結尾
-    
-    // 關閉檔案
-    fclose(fp);
-    
-    return 0;
 }
-#ifdef WRITE_SERVER
-void write_invalid(request *reqP){
+
+void handle_invalid_input(request *reqP){
     int train_id = atoi(reqP->buf);
-    if(train_id<902001 || train_id > 902005){
+    if(train_id<TRAIN_ID_START || train_id > TRAIN_ID_END){
         write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     }else{
         reqP->status = SHIFT;
+        reqP->booking_info.shift_id = train_id;
+        //reqP->booking_info.train_fd = trains[train_id-TRAIN_ID_START].file_fd;
+        //update_seat_stat(&(reqP->booking_info));
     }
-    /*write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
-    int train_id = atoi(reqP->buf);
-    if(train_id >902000 && train_id <902006){// Is valid: 902001 ~ 902005
-        reqP->status = SHIFT;    
-    }*/
 }
-void write_shift(request *reqP){
+void handle_shift_input(request *reqP){
     print_train_info(reqP);
     reqP->status = SEAT;
 }
-void write_seat(request *reqP){
+void handle_seat_input(request *reqP){
+    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+    int chosen_seat = atoi(reqP->buf);
+    //reqP->booking_info.seat_stat[chosen_seat] = CHOSEN;//update seat_stat[SEAT_NUM]
 
 }
-void write_booked(request *reqP){
+void handle_booked_input(request *reqP){
 
 }
 #endif
+
+int Get_train_fd(int train_id) {
+    int fd;
+    char filepath[FILE_LEN*3];
+    
+    getfilepath(filepath, train_id);  // 確認路徑正確
+    
+    #ifdef READ_SERVER    
+        fd = open(filepath, O_RDONLY);
+    #elif defined WRITE_SERVER
+        fd = open(filepath, O_WRONLY);
+    #endif
+    
+    if (fd < 0) {
+        perror("Error opening file");
+        return -1;
+    }
+    return fd;
+}
+
 
 int main(int argc, char** argv) {
     if (argc != 2) {
@@ -196,6 +228,11 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
     
+    // Get trains fds
+    for(int i= TRAIN_ID_START; i<= TRAIN_ID_END; i++){
+        trains[i-TRAIN_ID_START].file_fd = Get_train_fd(i);
+    }
+
     // Create pollfd array
     struct pollfd fds[MAX_CLIENTS + 1];
     memset(fds, 0, sizeof(fds));
@@ -204,7 +241,7 @@ int main(int argc, char** argv) {
     fds[0].fd = svr.listen_fd;
     fds[0].events = POLLIN;
     int nfds = 1;
-
+    
     while (1) {        
         if (poll(fds, nfds, -1) < 0) {
             ERR_EXIT("poll error");
@@ -220,6 +257,11 @@ int main(int argc, char** argv) {
                 nfds++;
                 printf("New connection: fd %d\n", conn_fd);
                 write(conn_fd, welcome_banner, strlen(welcome_banner));
+#ifdef READ_SERVER
+                write(conn_fd, read_shift_msg, strlen(read_shift_msg));
+#elif defined WRITE_SERVER
+                write(conn_fd, write_shift_msg, strlen(write_shift_msg));
+#endif
             }
         }
 
@@ -232,30 +274,53 @@ int main(int argc, char** argv) {
                     continue;
                 }
 
-            // 確保 write 只寫入到當前處理的客戶端
-            int client_fd = fds[i].fd; // 當前客戶端的文件描述符
+                // 確保 write 只寫入到當前處理的客戶端
+                int client_fd = fds[i].fd; // 當前客戶端的文件描述符
 
 #ifdef READ_SERVER
-            int train_id = atoi(requestP[client_fd].buf);
-            if(train_id < 902001 || train_id > 902005)
-                write(client_fd, read_shift_msg, strlen(read_shift_msg)); // 寫入訊息到該客戶端 
-            memset(buf, 0 , MAX_MSG_LEN*2);
-            read_train_file(train_id, buf, MAX_MSG_LEN*2);
-            //printf("%s\n", buf);
-            write(client_fd, buf, strlen(buf)); // 寫入資料回應
+                int train_id = atoi(requestP[client_fd].buf);
+
+                if (train_id < TRAIN_ID_START || train_id > TRAIN_ID_END) {
+                    // 如果輸入無效班次，提示訊息
+                    write(client_fd, read_shift_msg, strlen(read_shift_msg)); 
+                } else {
+                    // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
+                    if (lseek(trains[train_id - TRAIN_ID_START].file_fd, 0, SEEK_SET) == -1) {
+                        perror("lseek failed");
+                    } else {
+                        // 清空緩衝區，避免殘留數據
+                        memset(buf, 0, MAX_MSG_LEN * 2);
+
+                        // 讀取檔案內容
+                        ssize_t n_read = read(trains[train_id - TRAIN_ID_START].file_fd, buf, MAX_MSG_LEN * 2);
+                        
+                        // 檢查讀取是否成功
+                        if (n_read == -1) {
+                            perror("read failed");
+                        } else {
+                            // 回傳讀取到的數據給客戶端
+                            write(client_fd, buf, n_read);
+                        }
+                    }
+                }
+
 #elif defined WRITE_SERVER
-            if(requestP[client_fd].status == INVALID){
-                write_invalid(&requestP[client_fd]);
-            }
-            if(requestP[client_fd].status == SHIFT){
-                write_shift(&requestP[client_fd]);
-            }
-            if(requestP[client_fd].status == SEAT){
-                write_seat(&requestP[client_fd]);
-            }
-            if(requestP[client_fd].status == BOOKED){
-                write_booked(&requestP[client_fd]);
-            }
+
+                switch (requestP[client_fd].status)
+                {
+                    case SHIFT:
+                        handle_shift_input(&requestP[client_fd]);
+                        break;
+                    case SEAT :
+                        handle_seat_input(&requestP[client_fd]);
+                        break;
+                    case BOOKED:
+                        handle_booked_input(&requestP[client_fd]);
+                        break;
+                    default:
+                        break;
+                }
+        
 #endif
             // Close and remove the connection：timeout、user input exit
             /*close(fds[i].fd);
@@ -297,7 +362,7 @@ int accept_conn(void) {
     fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd, requestP[conn_fd].host);
     requestP[conn_fd].client_id = (svr.port * 1000) + num_conn;    // This should be unique for the same machine.
     num_conn++;
-    
+    requestP[conn_fd].status = SHIFT;
     return conn_fd;
 }
 
