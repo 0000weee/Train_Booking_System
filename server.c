@@ -72,6 +72,7 @@ static void init_request(request *reqP) {
 }
 
 static void free_request(request *reqP) {
+    // TODO: 把保留的座位釋出
     memset(reqP, 0, sizeof(request));
     init_request(reqP);
 }
@@ -372,16 +373,22 @@ void handle_input_seat(request *reqP) {
     write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 
-void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
+void handle_input_booked(request *reqP, struct pollfd *pollfdInfoP) {
     if (!strncmp(reqP->buf, "exit", 4)) {
-        // TODO: write exit_msg to client
-        fprintf(stderr, "[%d] %s", reqP->conn_fd, exit_msg);
+        write(reqP->conn_fd, exit_msg, strlen(exit_msg));
         close(reqP->conn_fd);
         free_request(reqP);
         free_pollfd(pollfdInfoP);
         return;
+    } else if (!strncmp(reqP->buf, "seat", 4)) {
+        reqP->status = STATE_SHIFT;
+        memset(reqP->booking_info.seat_stat, 0, sizeof(reqP->booking_info.seat_stat));
+        reqP->booking_info.num_of_chosen_seats = 0;
+        write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     }
+}
 
+void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
     switch (reqP->status) {
         case STATE_SHIFT:
             handle_input_shift(reqP);
@@ -390,6 +397,7 @@ void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
             handle_input_seat(reqP);
             break;
         case STATE_BOOKED:
+            handle_input_booked(reqP, pollfdInfoP);
             break;
         default:
             break;
