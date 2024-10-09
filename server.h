@@ -1,6 +1,6 @@
 #ifndef __SERVER_H
 #define __SERVER_H
-
+#include <sys/file.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +16,7 @@
 #include <netdb.h>
 #include <time.h>
 #include <poll.h>
+#include <sys/file.h>
 /*
  * Feel free to edit any part of codes
  */

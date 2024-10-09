@@ -83,6 +83,11 @@ int handle_read(request* reqP) {
 #ifdef READ_SERVER
 int print_train_info(request *reqP) {
     int train_fd = reqP->booking_info.train_fd;  // 獲取 train_fd
+
+    if (flock(train_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
+        perror("Error acquiring lock");
+        return;
+    }
     char buf[MAX_MSG_LEN];  // 用於存放讀取到的數據
 
     // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
@@ -103,6 +108,10 @@ int print_train_info(request *reqP) {
 
     // 複製座位信息到 reqP->buf，以便之後發送給客戶端
     strncpy(reqP->buf, buf, MAX_MSG_LEN);
+
+    if (flock(train_fd, LOCK_UN) == -1) {
+        perror("Error releasing lock");
+    }
     return 0;  // 成功返回 0
 }
 
@@ -131,7 +140,11 @@ int print_train_info(request *reqP) {
                 }
                 break;
             case PAID:
-                // 已支付座位，不做處理
+                if (strlen(paid) > 0) {
+                    sprintf(paid + strlen(paid), ",%d", i + 1); // 座位號 i+1，座位號從 1 開始計算
+                } else {
+                    sprintf(paid, "%d", i + 1); // 首個座位不需要加逗號
+                }
                 break;
             default:
                 break;
@@ -140,6 +153,7 @@ int print_train_info(request *reqP) {
 
     // 在這裡你可以使用 chosen_seat，例如打印或傳遞給其他函數
     printf("User:%d Chosen seats: %s\n", reqP->client_id, chosen_seat);
+    printf("User:%d Chosen seats: %s\n", reqP->client_id, paid);
 
     memset(buf, 0, sizeof(buf));
     sprintf(buf, "\nBooking info\n"
@@ -152,10 +166,10 @@ int print_train_info(request *reqP) {
     return 0;
 }
 
-int fully_booked(int fd){
-    char Fully_seat[FILE_LEN] = "1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n1111\n";
-    char Current_seat[FILE_LEN];
-    read(fd, Current_seat, FILE_LEN);
+int fully_booked(int fd){ // HAV BUG
+    char Fully_seat[FILE_LEN*2] = "1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n";
+    char Current_seat[FILE_LEN*2];
+    read(fd, Current_seat, FILE_LEN*2);
     return (strcmp( Current_seat, Fully_seat) == 0)? 1 : 0 ;
 }
 
@@ -180,7 +194,7 @@ void handle_shift_input(request *reqP){
     }
 }
 
-void Write_Back_Data(int fd, int seat_id, enum SEAT seat_status) {
+void Write_Back_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
     if (seat_id < 1 || seat_id > SEAT_NUM) {
         printf("Invalid seat_id\n");
         return;
@@ -268,17 +282,20 @@ void handle_seat_input(request *reqP){
             write(reqP->conn_fd, no_seat_msg, strlen(no_seat_msg));
             print_train_info(reqP);
         }
-        for(int i=1; i<= TRAIN_NUM; i++){
-            if(reqP->booking_info.seat_stat[i] == CHOSEN){
-                reqP->booking_info.seat_stat[i] = PAID;
-                Write_Back_Data(reqP->booking_info.train_fd, i, PAID);  
-            }    
+        else{
+            for(int i=0; i< TRAIN_NUM; i++){
+                    if(reqP->booking_info.seat_stat[i] == CHOSEN){
+                        printf("%d chang status\n", i);
+                        reqP->booking_info.seat_stat[i] = PAID;
+                        Write_Back_To_Fd(reqP->booking_info.train_fd, i, PAID);  
+                    }    
+                }
+                print_train_info(reqP);     
+                write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));    
+                reqP->status = BOOKED;
+                write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
         }
-        reqP->status = BOOKED;
-        write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));
-
-        print_train_info(reqP);         
-        write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
+        
 
     }else{
         int seat_id = atoi(reqP->buf);
@@ -288,7 +305,7 @@ void handle_seat_input(request *reqP){
                 reqP->booking_info.num_of_chosen_seats ++;
 
                 print_train_info(reqP);
-                Write_Back_Data(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
+                Write_Back_To_Fd(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
                 break;
             case CHOSEN:
                 //write(reqP->conn_fd, lock_msg, strlen(lock_msg));
@@ -296,7 +313,7 @@ void handle_seat_input(request *reqP){
                     reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
                     reqP->booking_info.num_of_chosen_seats --;
                     print_train_info(reqP);
-                    Write_Back_Data(reqP->booking_info.train_fd, seat_id, UNKNOWN);
+                    Write_Back_To_Fd(reqP->booking_info.train_fd, seat_id, UNKNOWN);
                 }else{
                     write(reqP->conn_fd, lock_msg, strlen(lock_msg));
                 }            
@@ -333,8 +350,14 @@ int main(int argc, char** argv) {
         getfilepath(filename, i);
 #ifdef READ_SERVER
         trains[j].file_fd = open(filename, O_RDONLY);
+        if (flock(trains[j].file_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
+            perror("Error acquiring lock");
+        }
 #elif defined WRITE_SERVER
         trains[j].file_fd = open(filename, O_RDWR);
+        if (flock(trains[j].file_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
+            perror("Error acquiring lock");
+        }
 #else
         trains[j].file_fd = -1;
 #endif
@@ -342,6 +365,9 @@ int main(int argc, char** argv) {
             ERR_EXIT("open");
         }
     }
+
+
+
 
     // Initialize server
     init_server((unsigned short)atoi(argv[1]));
@@ -447,6 +473,15 @@ int main(int argc, char** argv) {
 
     close(svr.listen_fd);
     for (i = 0; i < TRAIN_NUM; i++)
+#ifdef READ_SERVER
+        if (flock(trains[i].file_fd, LOCK_UN) == -1) {
+            perror("Error releasing lock");
+        }
+#else   
+        if (flock(trains[i].file_fd, LOCK_UN) == -1) {
+            perror("Error releasing lock");
+        } 
+#endif         
         close(trains[i].file_fd);
 
     return 0;
