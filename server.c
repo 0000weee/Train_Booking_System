@@ -245,11 +245,11 @@ int accept_conn(void) {
         ERR_EXIT("accept");
     }
 
-    requestP[conn_fd].conn_fd = conn_fd;
-    strcpy(requestP[conn_fd].host, inet_ntoa(client_address.sin_addr));
-    fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd,
-            requestP[conn_fd].host);
-    requestP[conn_fd].client_id = (svr.port * 1000) + num_conn;  // This should be unique for the same machine.
+    request *currentReqP = &requestP[conn_fd];
+    currentReqP->conn_fd = conn_fd;
+    strcpy(currentReqP->host, inet_ntoa(client_address.sin_addr));
+    fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd, currentReqP->host);
+    currentReqP->client_id = (svr.port * 1000) + num_conn;  // This should be unique for the same machine.
     pollfdP[conn_fd].fd = conn_fd;
     num_conn++;
 
