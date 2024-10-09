@@ -176,26 +176,22 @@ int handle_read(request *reqP) {
 
 #ifdef READ_SERVER
 
-int print_train_info(request *reqP) {
-    int i;
+int print_train_info(request *reqP, long train_id) {
+    train_info *trainsP = &trains[train_id - TRAIN_ID_START];
     char buf[MAX_MSG_LEN];
-
-    memset(buf, 0, sizeof(buf));
-    for (i = 0; i < SEAT_NUM / 4; i++) {
-        sprintf(buf + (i * 4 * 2), "%d %d %d %d\n", 0, 0, 0, 0);
-    }
+    lseek(trainsP->file_fd, 0, SEEK_SET);
+    read(trainsP->file_fd, buf, sizeof(buf));
+    write(reqP->conn_fd, buf, strlen(buf));
     return 0;
 }
 
 void handle_client_input(request *reqP, struct pollfd *pollfdInfoP) {
-    char buf[MAX_MSG_LEN * 2];
-    sprintf(buf, "%s : %s\n", accept_read_header, reqP->buf);
-    write(reqP->conn_fd, buf, strlen(buf));
-
-    // TODO: 在需要關閉的時候才關閉連線
-    close(reqP->conn_fd);
-    free_request(reqP);
-    free_pollfd(pollfdInfoP);
+    long train_id;
+    int result = str_to_long(reqP->buf, &train_id);
+    if (result == 0 && TRAIN_ID_START <= train_id && train_id <= TRAIN_ID_END) {
+        print_train_info(reqP, train_id);
+    }
+    write(reqP->conn_fd, read_shift_msg, strlen(read_shift_msg));
 }
 
 #else
