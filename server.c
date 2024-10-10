@@ -167,10 +167,7 @@ int print_train_info(request *reqP) {
 }
 
 int fully_booked(int fd){ // HAV BUG
-    char Fully_seat[FILE_LEN*2] = "1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n1 1 1 1\n";
-    char Current_seat[FILE_LEN*2];
-    read(fd, Current_seat, FILE_LEN*2);
-    return (strcmp( Current_seat, Fully_seat) == 0)? 1 : 0 ;
+    return 0;
 }
 
 void handle_shift_input(request *reqP){
@@ -178,13 +175,14 @@ void handle_shift_input(request *reqP){
     if(train_id<TRAIN_ID_START || train_id > TRAIN_ID_END){
         write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
     }else{
+        // update booking_info
+        reqP->booking_info.shift_id = train_id;
+        reqP->booking_info.train_fd = trains[train_id - TRAIN_ID_START].file_fd;   
+
         if(fully_booked(reqP->booking_info.train_fd)){
             write(reqP->conn_fd, full_msg, strlen(full_msg));
             write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
-        }else{
-            // update booking_info
-            reqP->booking_info.shift_id = train_id;
-            reqP->booking_info.train_fd = trains[train_id - TRAIN_ID_START].file_fd;    
+        }else{ 
             print_train_info(reqP);
 
             reqP->status = SEAT;
@@ -323,6 +321,7 @@ void handle_seat_input(request *reqP){
                 write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
                 break;
             default:
+                printf("default in seat stat\n");
                 break;                
         }
     }    
