@@ -99,10 +99,6 @@ int handle_read(request* reqP) {
 int print_train_info(request *reqP) {
     int train_fd = reqP->booking_info.train_fd;  // 獲取 train_fd
 
-    if (flock(train_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
-        perror("Error acquiring lock");
-        return 0;
-    }
     char buf[MAX_MSG_LEN];  // 用於存放讀取到的數據
 
     // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
@@ -450,6 +446,26 @@ int update_remaining_time(request* reqP) {
     return 0;
 }
 
+// 鎖定文件
+int lock_file(int fd, short type) {
+    struct flock fl;
+    fl.l_type = type;  // F_RDLCK, F_WRLCK, F_UNLCK
+    fl.l_whence = SEEK_SET;
+    fl.l_start = 0;
+    fl.l_len = 0;  // 0 means to lock the whole file
+
+    if (fcntl(fd, F_SETLK, &fl) == -1) {
+        perror("Error acquiring lock");
+        return -1;
+    }
+    return 0;
+}
+
+// 釋放文件鎖
+int unlock_file(int fd) {
+    return lock_file(fd, F_UNLCK);
+}
+
 
 int main(int argc, char** argv) {
     if (argc != 2) {
@@ -466,14 +482,8 @@ int main(int argc, char** argv) {
         getfilepath(filename, i);
 #ifdef READ_SERVER
         trains[j].file_fd = open(filename, O_RDONLY);
-        if (flock(trains[j].file_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
-            perror("Error acquiring lock");
-        }
 #elif defined WRITE_SERVER
         trains[j].file_fd = open(filename, O_RDWR);
-        if (flock(trains[j].file_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
-            perror("Error acquiring lock");
-        }
 #else
         trains[j].file_fd = -1;
 #endif
@@ -482,6 +492,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    for(int j=0; j< TRAIN_NUM; j++){
+#ifdef READ_SERVER
+        trains[j].file_fd = open(filename, O_RDONLY);
+        if (lock_file(trains[j].file_fd, F_RDLCK) == -1) {  // F_RDLCK 表示讀鎖
+            perror("Error acquiring read lock");
+        }
+#elif defined WRITE_SERVER
+        trains[j].file_fd = open(filename, O_RDWR);
+        if (lock_file(trains[j].file_fd, F_WRLCK) == -1) {  // F_WRLCK 表示寫鎖
+            perror("Error acquiring write lock");
+        }
+#endif
+    }
 
 
 
@@ -613,18 +636,12 @@ int main(int argc, char** argv) {
     }
 
     close(svr.listen_fd);
-    for (i = 0; i < TRAIN_NUM; i++)
-#ifdef READ_SERVER
-        if (flock(trains[i].file_fd, LOCK_UN) == -1) {
+    for (int i = 0; i < TRAIN_NUM; i++){
+        if (unlock_file(trains[j].file_fd) == -1) {
             perror("Error releasing lock");
         }
-#else   
-        if (flock(trains[i].file_fd, LOCK_UN) == -1) {
-            perror("Error releasing lock");
-        } 
-#endif         
         close(trains[i].file_fd);
-
+    }    
     return 0;
 }
 
