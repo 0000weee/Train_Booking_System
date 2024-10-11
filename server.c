@@ -101,7 +101,7 @@ int print_train_info(request *reqP) {
 
     if (flock(train_fd, LOCK_EX) == -1) {  // LOCK_EX 取得排他鎖
         perror("Error acquiring lock");
-        return;
+        return 0;
     }
     char buf[MAX_MSG_LEN];  // 用於存放讀取到的數據
 
@@ -447,6 +447,7 @@ int update_remaining_time(request* reqP) {
         //reqP->conn_fd = -1;  // 標記此連線為關閉
         return 1;
     }
+    return 0;
 }
 
 
@@ -457,7 +458,7 @@ int main(int argc, char** argv) {
     }
 
     int conn_fd;  // fd for file that we open for reading
-    char buf[MAX_MSG_LEN*2], filename[FILE_LEN];
+    char filename[FILE_LEN];
 
     int i,j;
 
