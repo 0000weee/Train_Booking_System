@@ -166,8 +166,31 @@ int print_train_info(request *reqP) {
     return 0;
 }
 
-int fully_booked(int fd){ // HAV BUG
-    return 0;
+int fully_booked(int fd) {
+    char buffer[FILE_LEN];
+    memset(buffer, 0, FILE_LEN);
+
+    // 先將檔案的讀取指針移回到文件的開頭
+    if (lseek(fd, 0, SEEK_SET) == -1) {
+        perror("lseek failed");
+        return 0;
+    }
+
+    // 讀取文件中的座位資料到緩衝區
+    ssize_t n_read = read(fd, buffer, FILE_LEN);
+    if (n_read < 0) {
+        perror("fully booked read failed");
+        return 0;
+    }
+
+    // 檢查座位是否已完全預訂
+    for (int i = 0; i < n_read; i++) {
+        if (buffer[i] == '0') {  // '0' 表示座位未被選擇或未付款
+            return 0;  // 尚有座位未被選擇
+        }
+    }
+    
+    return 1;  // 所有座位均已被選擇或付款
 }
 
 void handle_shift_input(request *reqP){
@@ -192,75 +215,110 @@ void handle_shift_input(request *reqP){
     }
 }
 
-void Write_Back_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
-    if (seat_id < 1 || seat_id > SEAT_NUM) {
+void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
+    char buffer[FILE_LEN];
+    memset(buffer, 0, FILE_LEN);
+
+    // 先將檔案的讀取指針移回到文件的開頭
+    if (lseek(fd, 0, SEEK_SET) == -1) {
+        perror("lseek failed");
+        return;
+    }
+
+    // 讀取文件中的座位資料到緩衝區
+    if (read(fd, buffer, FILE_LEN) < 0) {
+        perror("Read failed");
+        return;
+    }
+
+    // 找到第 seat_id 個非空白字符
+    int i, j = 0;
+    for (i = 0; i < FILE_LEN; i++) {
+        if (buffer[i] == ' ' || buffer[i] == '\n') {
+            continue;
+        }
+        j++;
+        if (j == seat_id) {
+            break;
+        }
+    }
+
+    // 檢查是否找到對應座位
+    if (i >= FILE_LEN) {
         printf("Invalid seat_id\n");
         return;
     }
 
-    // 計算 seat_id 對應的文件偏移位置
-    int row = (seat_id - 1) / 4;  // 計算座位在哪一行
-    int col = (seat_id - 1) % 4;  // 計算座位在哪一列
-    off_t offset = row * ROW_SIZE + col * 2; // 每列2個字元, ROW_SIZE表示每行字元數 (數字 + 空格)
-
-    // 根據座位狀態設置要寫入的字符
-    char seat_char;
+    // 根據 seat_status 更新緩衝區的內容
     switch (seat_status) {
         case UNKNOWN:
-            seat_char = '0';
+            buffer[i] = '0';
             break;
         case CHOSEN:
-            seat_char = '1';
+            buffer[i] = '1';
             break;
         case PAID:
-            seat_char = '2';
+            buffer[i] = '2';
             break;
         default:
             printf("Invalid seat status\n");
             return;
     }
 
-    // 定位到檔案中的指定偏移量
-    if (lseek(fd, offset, SEEK_SET) == -1) {
+    // 將指針移回該座位的位置並寫入單個字元
+    if (lseek(fd, i, SEEK_SET) == -1) {
         perror("lseek failed");
         return;
     }
 
-    // 寫入座位狀態字符
-    if (write(fd, &seat_char, 1) == -1) {
+    // 寫入更新的座位狀態
+    if (write(fd, &buffer[i], 1) == -1) {
         perror("write failed");
-        return;
     }
-
-    printf("Seat %d updated successfully with status %d.\n", seat_id, seat_status);
 }
 
-int Check_Seat_Stat(int fd, int seat_id) {
-    if (seat_id < 1 || seat_id > SEAT_NUM) {
-        printf("Invalid seat_id\n");
-        return -1; // 返回錯誤
-    }
 
-    // 計算 seat_id 對應的文件偏移位置
-    int row = (seat_id - 1) / 4;  // 計算座位在哪一行
-    int col = (seat_id - 1) % 4;  // 計算座位在哪一列
-    off_t offset = row * ROW_SIZE + col * 2; // 每列2個字元 (數字 + 空格)
+enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
+    char buffer[FILE_LEN];
+    memset(buffer, 0, FILE_LEN);
 
-    // 定位到檔案中的指定偏移量
-    if (lseek(fd, offset, SEEK_SET) == -1) {
+    // 先將檔案的讀取指針移回到文件的開頭
+    if (lseek(fd, 0, SEEK_SET) == -1) {
         perror("lseek failed");
-        return -1;
+        return UNKNOWN;
     }
 
-    // 讀取座位狀態字符
-    char seat_char;
-    if (read(fd, &seat_char, 1) == -1) {
-        perror("read failed");
-        return -1;
+    // 讀取文件中的座位資料到緩衝區
+    if (read(fd, buffer, FILE_LEN) < 0) {
+        perror("Read bit from fd failed");
+        return UNKNOWN;
+    }
+
+    // 遍歷緩衝區，查找第 seat_id 個非空白字符
+    int i, j = 0;
+    for (i = 0; i < FILE_LEN; i++) {
+        // 跳過空格和換行符號
+        if (buffer[i] == ' ' || buffer[i] == '\n') {
+            continue;
+        }
+        
+        // 計數非空白字符
+        j++;
+        
+        // 當找到第 seat_id 個非空白字符時退出循環
+        if (j == seat_id) {
+            break;
+        }
+    }
+
+    // 檢查是否找到座位，如果 i 已經超過 FILE_LEN 則 seat_id 無效
+    if (i >= FILE_LEN) {
+        printf("Invalid seat_id\n");
+        return UNKNOWN;
     }
 
     // 返回對應的 enum SEAT 狀態
-    switch (seat_char) {
+    switch (buffer[i]) {
         case '0':
             return UNKNOWN;
         case '1':
@@ -268,10 +326,11 @@ int Check_Seat_Stat(int fd, int seat_id) {
         case '2':
             return PAID;
         default:
-            printf("Unknown seat status: %c\n", seat_char);
-            return -1; // 不認識的狀態
+            printf("Invalid seat status\n");
+            return UNKNOWN;
     }
 }
+
 
 
 void handle_seat_input(request *reqP){
@@ -282,36 +341,38 @@ void handle_seat_input(request *reqP){
         }
         else{
             for(int i=0; i< TRAIN_NUM; i++){
-                    if(reqP->booking_info.seat_stat[i] == CHOSEN){
-                        printf("%d chang status\n", i);
-                        reqP->booking_info.seat_stat[i] = PAID;
-                        Write_Back_To_Fd(reqP->booking_info.train_fd, i, PAID);  
-                    }    
-                }
-                print_train_info(reqP);     
-                write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));    
-                reqP->status = BOOKED;
-                write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
+                if(reqP->booking_info.seat_stat[i] == CHOSEN){
+                    reqP->booking_info.seat_stat[i] = PAID;
+                    Write_Bit_To_Fd(reqP->booking_info.train_fd, i+1, PAID);  
+                }    
+            }
+            print_train_info(reqP);     
+            write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));    
+            write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
+            reqP->status = BOOKED;
         }
         
 
     }else{
         int seat_id = atoi(reqP->buf);
-        switch( Check_Seat_Stat(reqP->booking_info.train_fd, seat_id)){ // Public data
+        if(seat_id<0 || seat_id>SEAT_NUM)
+            write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+            
+        switch( Read_Bit_From_Fd(reqP->booking_info.train_fd, seat_id)){ // Public data
             case UNKNOWN:
                 reqP->booking_info.seat_stat[seat_id -1] = CHOSEN;//update seat_stat[SEAT_NUM]
                 reqP->booking_info.num_of_chosen_seats ++;
 
                 print_train_info(reqP);
-                Write_Back_To_Fd(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
+                Write_Bit_To_Fd(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
                 break;
+
             case CHOSEN:
-                //write(reqP->conn_fd, lock_msg, strlen(lock_msg));
                 if(reqP->booking_info.seat_stat[seat_id -1] == CHOSEN){
                     reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
                     reqP->booking_info.num_of_chosen_seats --;
                     print_train_info(reqP);
-                    Write_Back_To_Fd(reqP->booking_info.train_fd, seat_id, UNKNOWN);
+                    Write_Bit_To_Fd(reqP->booking_info.train_fd, seat_id, UNKNOWN);
                 }else{
                     write(reqP->conn_fd, lock_msg, strlen(lock_msg));
                 }            
@@ -321,11 +382,10 @@ void handle_seat_input(request *reqP){
                 write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
                 break;
             default:
-                printf("default in seat stat\n");
                 break;                
         }
+        write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
     }    
-    write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
 }
 void handle_booked_input(request *reqP){
     if(strcmp(reqP->buf, "exit") == 0){
