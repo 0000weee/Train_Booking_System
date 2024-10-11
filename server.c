@@ -244,7 +244,7 @@ void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
     }
 
     // 檢查是否找到對應座位
-    if (i >= FILE_LEN) {
+    if (i > FILE_LEN) {
         printf("Invalid seat_id\n");
         return;
     }
@@ -312,7 +312,7 @@ enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
     }
 
     // 檢查是否找到座位，如果 i 已經超過 FILE_LEN 則 seat_id 無效
-    if (i >= FILE_LEN) {
+    if (i > FILE_LEN) {
         printf("Invalid seat_id\n");
         return UNKNOWN;
     }
@@ -320,10 +320,13 @@ enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
     // 返回對應的 enum SEAT 狀態
     switch (buffer[i]) {
         case '0':
+            printf("UNKNOWN \n");
             return UNKNOWN;
         case '1':
+            printf("CHOSEN \n");
             return CHOSEN;
         case '2':
+            printf("PAID \n");
             return PAID;
         default:
             printf("Invalid seat status\n");
@@ -332,61 +335,69 @@ enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
 }
 
 
-
-void handle_seat_input(request *reqP){
-    if(strcmp("pay", reqP->buf) == 0){
-        if(reqP->booking_info.num_of_chosen_seats == 0){
+void handle_seat_input(request *reqP) {
+    if (strcmp("pay", reqP->buf) == 0) {
+        if (reqP->booking_info.num_of_chosen_seats == 0) {
             write(reqP->conn_fd, no_seat_msg, strlen(no_seat_msg));
             print_train_info(reqP);
-        }
-        else{
-            for(int i=0; i< TRAIN_NUM; i++){
-                if(reqP->booking_info.seat_stat[i] == CHOSEN){
+            write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+        } else {
+            // 更新選中的座位為已支付狀態
+            for (int i = 0; i < SEAT_NUM; i++) {  // SEAT_NUM 應為 40
+                if (reqP->booking_info.seat_stat[i] == CHOSEN) {
+                    printf("%d change status to PAID\n", i + 1);  // 調試用的輸出
                     reqP->booking_info.seat_stat[i] = PAID;
-                    Write_Bit_To_Fd(reqP->booking_info.train_fd, i+1, PAID);  
-                }    
+                    Write_Bit_To_Fd(reqP->booking_info.train_fd, i + 1, PAID);  // 更新文件中的座位狀態
+                }
             }
+            // 清空選擇狀態，避免再次選擇錯誤
+            reqP->booking_info.num_of_chosen_seats = 0;
             print_train_info(reqP);     
             write(reqP->conn_fd, book_succ_msg, strlen(book_succ_msg));    
             write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
             reqP->status = BOOKED;
         }
-        
-
-    }else{
-        int seat_id = atoi(reqP->buf);
-        if(seat_id<0 || seat_id>SEAT_NUM)
+    } else {
+        int seat_id = atoi(reqP->buf);  // 將輸入的座位號轉換為數字
+        if (seat_id < 1 || seat_id > SEAT_NUM) {  // 檢查座位是否在有效範圍內
             write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
-            
-        switch( Read_Bit_From_Fd(reqP->booking_info.train_fd, seat_id)){ // Public data
-            case UNKNOWN:
-                reqP->booking_info.seat_stat[seat_id -1] = CHOSEN;//update seat_stat[SEAT_NUM]
-                reqP->booking_info.num_of_chosen_seats ++;
+            return;
+        }
 
+        // 檢查座位狀態
+        switch (Read_Bit_From_Fd(reqP->booking_info.train_fd, seat_id)) {
+            case UNKNOWN:
+                reqP->booking_info.seat_stat[seat_id - 1] = CHOSEN;  // 更新 seat_stat 狀態，seat_id - 1 對應數組索引
+                reqP->booking_info.num_of_chosen_seats++;
                 print_train_info(reqP);
-                Write_Bit_To_Fd(reqP->booking_info.train_fd, seat_id, CHOSEN); // Update train_90200X
+                Write_Bit_To_Fd(reqP->booking_info.train_fd, seat_id, CHOSEN);  // 更新 train 文件
                 break;
 
             case CHOSEN:
-                if(reqP->booking_info.seat_stat[seat_id -1] == CHOSEN){
-                    reqP->booking_info.seat_stat[seat_id -1] = UNKNOWN;//update seat_stat[SEAT_NUM]
-                    reqP->booking_info.num_of_chosen_seats --;
+                if (reqP->booking_info.seat_stat[seat_id - 1] == CHOSEN) { //User Has been Chosen
+                    reqP->booking_info.seat_stat[seat_id - 1] = UNKNOWN;
+                    reqP->booking_info.num_of_chosen_seats--;
+                    write(reqP->conn_fd, cancel_msg, strlen(cancel_msg));
                     print_train_info(reqP);
                     Write_Bit_To_Fd(reqP->booking_info.train_fd, seat_id, UNKNOWN);
-                }else{
-                    write(reqP->conn_fd, lock_msg, strlen(lock_msg));
-                }            
+                } else {
+                    write(reqP->conn_fd, lock_msg, strlen(lock_msg));  // 提示座位被鎖定
+                }
                 break;
 
-            case BOOKED:
-                write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));
+            case PAID:
+                write(reqP->conn_fd, seat_booked_msg, strlen(seat_booked_msg));  // 座位已支付，無法再次選擇
                 break;
+
             default:
-                break;                
+                break;
         }
         write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
-    }    
+    }
 }
+
+
+
 void handle_booked_input(request *reqP){
     if(strcmp(reqP->buf, "exit") == 0){
         write(reqP->conn_fd, exit_msg, strlen(exit_msg));
@@ -395,6 +406,9 @@ void handle_booked_input(request *reqP){
     }else if(strcmp(reqP->buf, "seat") == 0){
         reqP->status = SEAT;
         write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
+    }
+    else{
+        write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
     }
 }
 #endif
