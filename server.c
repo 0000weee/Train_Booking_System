@@ -482,19 +482,6 @@ int main(int argc, char** argv) {
         getfilepath(filename, i);
 #ifdef READ_SERVER
         trains[j].file_fd = open(filename, O_RDONLY);
-#elif defined WRITE_SERVER
-        trains[j].file_fd = open(filename, O_RDWR);
-#else
-        trains[j].file_fd = -1;
-#endif
-        if (trains[j].file_fd < 0) {
-            ERR_EXIT("open");
-        }
-    }
-
-    for(int j=0; j< TRAIN_NUM; j++){
-#ifdef READ_SERVER
-        trains[j].file_fd = open(filename, O_RDONLY);
         if (lock_file(trains[j].file_fd, F_RDLCK) == -1) {  // F_RDLCK 表示讀鎖
             perror("Error acquiring read lock");
         }
@@ -503,8 +490,14 @@ int main(int argc, char** argv) {
         if (lock_file(trains[j].file_fd, F_WRLCK) == -1) {  // F_WRLCK 表示寫鎖
             perror("Error acquiring write lock");
         }
+#else
+        trains[j].file_fd = -1;
 #endif
+        if (trains[j].file_fd < 0) {
+            ERR_EXIT("open");
+        }
     }
+
 
 
 
