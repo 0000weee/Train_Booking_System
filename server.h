@@ -17,7 +17,7 @@
 #include <time.h>
 #include <poll.h>
 #include <sys/file.h>
-
+#include <sys/time.h> // Clock need
 /*
  * Feel free to edit any part of codes
  */
@@ -33,6 +33,8 @@
 #define MAX_MSG_LEN 512
 #define MAX_CLIENTS 30
 
+// 定義連線超時的時長（5秒）
+#define TIMEOUT_SEC 5 
 enum STATE {
     INVALID,    // Invalid state
     SHIFT,      // Shift selection

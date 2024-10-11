@@ -45,40 +45,55 @@ int handle_read(request* reqP) {
      *      1: read successfully
      *      0: read EOF (client down)
      *     -1: read failed
-     *   TODO: handle incomplete input
+     *   Handle incomplete input
      */ 
 
     int r;
     char buf[MAX_MSG_LEN];
-    size_t len;
-
     memset(buf, 0, sizeof(buf));
 
-    // Read in request from client
+    // Read in request from client (non-blocking)
     r = read(reqP->conn_fd, buf, sizeof(buf));
 
-    //512 nonblock IO, need read until "\n"
-    if (r < 0) return -1; 
-    if (r == 0) return 0;
-
-    char* p1 = strstr(buf, "\015\012"); // \r\n
-    if (p1 == NULL) {
-        p1 = strstr(buf, "\012");   // \n
-        if (p1 == NULL) {
-            if (!strncmp(buf, IAC_IP, 2)) {
-                // Client presses ctrl+C, regard as disconnection
-                fprintf(stderr, "Client presses ctrl+C....\n");
-                return 0;
-            }
+    if (r < 0) {
+        // 若沒有資料可讀且不是致命錯誤，返回以繼續讀取
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return 1; // Non-blocking read, no data yet
         }
+        return -1;  // 發生錯誤
     }
 
-    len = p1 - buf + 1;
-    memmove(reqP->buf, buf, len);
-    reqP->buf[len - 1] = '\0';
-    reqP->buf_len = len-1;
+    if (r == 0) {
+        return 0; // EOF，客戶端關閉連線
+    }
+
+    // 累積讀取到的資料
+    if (reqP->buf_len + r >= MAX_MSG_LEN) {
+        fprintf(stderr, "Buffer overflow.\n");
+        write(reqP->conn_fd, invalid_op_msg, strlen(invalid_op_msg));
+        return -1;
+    }
+    memmove(reqP->buf + reqP->buf_len, buf, r);
+    reqP->buf_len += r;
+
+    // 檢查是否讀取到完整訊息
+    char* p1 = strstr(reqP->buf, "\015\012"); // 查找 \r\n
+    if (p1 == NULL) {
+        p1 = strstr(reqP->buf, "\012"); // 查找 \n
+    }
+
+    if (p1 != NULL) {
+        // 找到完整訊息，處理它
+        size_t len = p1 - reqP->buf + 1;
+        reqP->buf[len - 1] = '\0';  // 終止符號
+        reqP->buf_len = 0;  // 清空緩存
+        return 1;
+    }
+
+    // 還沒有完整訊息，等待更多資料
     return 1;
 }
+
 
 #ifdef READ_SERVER
 int print_train_info(request *reqP) {
@@ -194,6 +209,7 @@ int fully_booked(int fd) {
 }
 
 void handle_shift_input(request *reqP){
+    
     int train_id = atoi(reqP->buf);
     if(train_id<TRAIN_ID_START || train_id > TRAIN_ID_END){
         write(reqP->conn_fd, write_shift_msg, strlen(write_shift_msg));
@@ -407,12 +423,31 @@ void handle_booked_input(request *reqP){
         reqP->status = SEAT;
         write(reqP->conn_fd, write_seat_msg, strlen(write_seat_msg));
     }
-    else{
-        write(reqP->conn_fd, write_seat_or_exit_msg, strlen(write_seat_or_exit_msg));
-    }
 }
 #endif
 
+// Function to calculate the remaining time of the connection
+int update_remaining_time(request* reqP) {
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
+    // 計算已過時間
+    long elapsed_sec = now.tv_sec - reqP->remaining_time.tv_sec;
+    long elapsed_usec = now.tv_usec - reqP->remaining_time.tv_usec;
+
+    if (elapsed_usec < 0) {
+        elapsed_usec += 1000000;
+        elapsed_sec -= 1;
+    }
+
+    // 如果超時，關閉連線
+    if (elapsed_sec >= TIMEOUT_SEC) {
+        printf("Connection timed out for client %d\n", reqP->client_id);
+        //close(reqP->conn_fd);
+        //reqP->conn_fd = -1;  // 標記此連線為關閉
+        return 1;
+    }
+}
 
 
 int main(int argc, char** argv) {
@@ -465,7 +500,7 @@ int main(int argc, char** argv) {
     int nfds = 1;
     
     while (1) {        
-        if (poll(fds, nfds, -1) < 0) {
+        if (poll(fds, nfds, 100) < 0) { // 100ms 
             ERR_EXIT("poll error");
         }
 
@@ -489,6 +524,7 @@ int main(int argc, char** argv) {
 
         // Check for I/O on existing connections
         for (i = 1; i < nfds; i++) {
+            
             if (fds[i].revents & POLLIN) { // 如果有資料可讀，則處理讀取操作
                 int ret = handle_read(&requestP[fds[i].fd]);
                 if (ret < 0) {
@@ -498,6 +534,14 @@ int main(int argc, char** argv) {
 
                 // 確保 write 只寫入到當前處理的客戶端
                 int client_fd = fds[i].fd; // 當前客戶端的文件描述符
+                if(strcmp(requestP[client_fd].buf, "exit") == 0){
+                    write(requestP[conn_fd].conn_fd, exit_msg, strlen(exit_msg));
+                    close(fds[i].fd);
+                    free_request(&requestP[fds[i].fd]);
+                    fds[i] = fds[nfds - 1];  // Move last entry to the current slot
+                    nfds--;
+                    i--;
+                }
 
 #ifdef READ_SERVER
                 int train_id = atoi(requestP[client_fd].buf);
@@ -527,28 +571,44 @@ int main(int argc, char** argv) {
                 switch (requestP[client_fd].status)
                 {
                     case SHIFT:
-                        handle_shift_input(&requestP[client_fd]);
+                        if( strcmp(requestP[client_fd].buf, "seat") == 0 || strcmp(requestP[client_fd].buf, "pay") == 0){
+                            write(requestP[client_fd].conn_fd, invalid_op_msg, strlen(invalid_op_msg));
+                        }else{
+                            handle_shift_input(&requestP[client_fd]);
+                        }
                         break;
                     case SEAT :
-                        handle_seat_input(&requestP[client_fd]);
+                        if( strcmp(requestP[client_fd].buf, "seat") == 0){
+                            write(requestP[client_fd].conn_fd, invalid_op_msg, strlen(invalid_op_msg));
+                        }else{
+                            handle_seat_input(&requestP[client_fd]);
+                        }                        
                         break;
                     case BOOKED:
-                        handle_booked_input(&requestP[client_fd]);
+                        if(strcmp(requestP[client_fd].buf, "seat") == 0 || strcmp(requestP[client_fd].buf, "exit") == 0){
+                            handle_booked_input(&requestP[client_fd]);
+                        }else{
+                            write(requestP[client_fd].conn_fd, invalid_op_msg, strlen(invalid_op_msg));
+                        }
+                        
                         break;
                     default:
                         break;
                 }
         
 #endif
-            // Close and remove the connection：timeout、user input exit
-            /*close(fds[i].fd);
-            free_request(&requestP[fds[i].fd]);
-            fds[i] = fds[nfds - 1];  // Move last entry to the current slot
-            nfds--;
-            i--;  // Ensure we don't skip the next fd   
-            */ 
+            } // POLLIN end 
+
+            if(update_remaining_time(&requestP[fds[i].fd]) == 1){
+                close(fds[i].fd);
+                free_request(&requestP[fds[i].fd]);
+                fds[i] = fds[nfds - 1];  // Move last entry to the current slot
+                nfds--;
+                i--;
             }            
-        }
+            
+
+        }// For loop end
     }
 
     close(svr.listen_fd);
@@ -590,6 +650,8 @@ int accept_conn(void) {
     requestP[conn_fd].client_id = (svr.port * 1000) + num_conn;    // This should be unique for the same machine.
     num_conn++;
     requestP[conn_fd].status = SHIFT;
+    gettimeofday(&requestP[conn_fd].remaining_time, NULL);  // 紀錄當前時間
+    requestP[conn_fd].remaining_time.tv_sec += TIMEOUT_SEC;  // 加上 5 秒
     return conn_fd;
 }
 
