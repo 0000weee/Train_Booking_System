@@ -99,6 +99,8 @@ int handle_read(request* reqP) {
 int print_train_info(request *reqP) {
     int train_fd = reqP->booking_info.train_fd;  // 獲取 train_fd
 
+    lock_file(train_fd,F_RDLCK); // 取得 Lock
+
     char buf[MAX_MSG_LEN];  // 用於存放讀取到的數據
 
     // 重置檔案指針到檔案開頭，確保每次讀取都從頭開始
@@ -120,9 +122,8 @@ int print_train_info(request *reqP) {
     // 複製座位信息到 reqP->buf，以便之後發送給客戶端
     strncpy(reqP->buf, buf, MAX_MSG_LEN);
 
-    if (flock(train_fd, LOCK_UN) == -1) {
-        perror("Error releasing lock");
-    }
+    unlock_file(train_fd);
+
     return 0;  // 成功返回 0
 }
 
@@ -228,18 +229,21 @@ void handle_shift_input(request *reqP){
 }
 
 void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
+    lock_file(fd, F_WRLCK);
     char buffer[FILE_LEN];
     memset(buffer, 0, FILE_LEN);
 
     // 先將檔案的讀取指針移回到文件的開頭
     if (lseek(fd, 0, SEEK_SET) == -1) {
         perror("lseek failed");
+        unlock_file(fd);
         return;
     }
 
     // 讀取文件中的座位資料到緩衝區
     if (read(fd, buffer, FILE_LEN) < 0) {
         perror("Read failed");
+        unlock_file(fd);
         return;
     }
 
@@ -258,6 +262,7 @@ void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
     // 檢查是否找到對應座位
     if (i > FILE_LEN) {
         printf("Invalid seat_id\n");
+        unlock_file(fd);
         return;
     }
 
@@ -274,12 +279,14 @@ void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
             break;
         default:
             printf("Invalid seat status\n");
+            unlock_file(fd);
             return;
     }
 
     // 將指針移回該座位的位置並寫入單個字元
     if (lseek(fd, i, SEEK_SET) == -1) {
         perror("lseek failed");
+        unlock_file(fd);
         return;
     }
 
@@ -287,22 +294,26 @@ void Write_Bit_To_Fd(int fd, int seat_id, enum SEAT seat_status) {
     if (write(fd, &buffer[i], 1) == -1) {
         perror("write failed");
     }
+    unlock_file(fd);
 }
 
 
 enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
+    lock_file(fd, F_RDLCK);
     char buffer[FILE_LEN];
     memset(buffer, 0, FILE_LEN);
 
     // 先將檔案的讀取指針移回到文件的開頭
     if (lseek(fd, 0, SEEK_SET) == -1) {
         perror("lseek failed");
+        unlock_file(fd);
         return UNKNOWN;
     }
 
     // 讀取文件中的座位資料到緩衝區
     if (read(fd, buffer, FILE_LEN) < 0) {
         perror("Read bit from fd failed");
+        unlock_file(fd);
         return UNKNOWN;
     }
 
@@ -326,6 +337,7 @@ enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
     // 檢查是否找到座位，如果 i 已經超過 FILE_LEN 則 seat_id 無效
     if (i > FILE_LEN) {
         printf("Invalid seat_id\n");
+        unlock_file(fd);
         return UNKNOWN;
     }
 
@@ -333,15 +345,19 @@ enum SEAT Read_Bit_From_Fd(int fd, int seat_id) {
     switch (buffer[i]) {
         case '0':
             printf("UNKNOWN \n");
+            unlock_file(fd);
             return UNKNOWN;
         case '1':
             printf("CHOSEN \n");
+            unlock_file(fd);
             return CHOSEN;
         case '2':
             printf("PAID \n");
+            unlock_file(fd);
             return PAID;
         default:
             printf("Invalid seat status\n");
+            unlock_file(fd);
             return UNKNOWN;
     }
 }
@@ -482,14 +498,8 @@ int main(int argc, char** argv) {
         getfilepath(filename, i);
 #ifdef READ_SERVER
         trains[j].file_fd = open(filename, O_RDONLY);
-        if (lock_file(trains[j].file_fd, F_RDLCK) == -1) {  // F_RDLCK 表示讀鎖
-            perror("Error acquiring read lock");
-        }
 #elif defined WRITE_SERVER
         trains[j].file_fd = open(filename, O_RDWR);
-        if (lock_file(trains[j].file_fd, F_WRLCK) == -1) {  // F_WRLCK 表示寫鎖
-            perror("Error acquiring write lock");
-        }
 #else
         trains[j].file_fd = -1;
 #endif
@@ -630,9 +640,6 @@ int main(int argc, char** argv) {
 
     close(svr.listen_fd);
     for (int i = 0; i < TRAIN_NUM; i++){
-        if (unlock_file(trains[j].file_fd) == -1) {
-            perror("Error releasing lock");
-        }
         close(trains[i].file_fd);
     }    
     return 0;
@@ -675,7 +682,7 @@ static void getfilepath(char* filepath, int extension) {
 }
 
 // ======================================================================================================
-// You don't need to know how the following codes are working
+// Socket
 #include <fcntl.h>
 
 static void init_request(request* reqP) {
